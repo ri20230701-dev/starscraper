@@ -5,6 +5,10 @@ GitHub のユーザー名を入れると、そのアカウントのリポジト�
 
 > 🚧 WIP — 開発中です。
 
+現在は issue #1 の描画検証用に、固定 100 棟のサンプル都市を表示します。
+ドラッグで Orbit、スクロールでズーム、右ドラッグでパン、Save PNG で Bloom を含む画像を保存します。
+GitHub 連携・本来の街生成・Walk は後続 issue の範囲です。
+
 ## 街の読み方
 
 | リポジトリ | 3D 表現 |
@@ -26,8 +30,13 @@ npm run dev
 
 ```bash
 npm test        # 全テスト
-npm run build   # 型チェック + アーキテクチャテスト + ビルド
+npm run typecheck
+npx vite build  # issue #1 のバンドル検証
 ```
+
+既存の `npm run build` は `tests/architecture.test.ts` を要求します。
+そのテストは issue #6 で追加予定のため、現段階では上記の個別コマンドを使用します。
+描画方式・検証結果・実ブラウザでの未確認項目は [docs/RENDER_VALIDATION.md](docs/RENDER_VALIDATION.md) を参照してください。
 
 ## 設計
 
@@ -35,8 +44,9 @@ npm run build   # 型チェック + アーキテクチャテスト + ビルド
 Codex による敵対的レビューの指摘と、それに対する裁定も同ファイルの §12 に残しています。
 
 4 層(domain / application / infrastructure / presentation)に分離し、
-レイヤ間の依存方向を AST ベースのテストで機械的に検証しています。
-街の生成ルールは Three.js に依存しない純粋関数なので、単体テストの対象です。
+レイヤ間の依存方向を AST ベースのテストで機械的に検証する予定です(issue #6)。
+描画ループの所有者は `src/presentation/CityPresenter.ts` です。
+現在のテストは窓の実寸計算と固定サンプルの 100 棟・箱メッシュ数を検証します。
 
 ## ライセンス
 
