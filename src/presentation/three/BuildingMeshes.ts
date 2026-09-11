@@ -1,5 +1,6 @@
 import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import type { CitySnapshot } from '../../application/dto/CitySnapshot';
+import { createWindowMaterial } from './WindowMaterial';
 
 /** Exactly one box and one draw call per building; windows never own geometry. */
 export class BuildingMeshes {
@@ -11,7 +12,7 @@ export class BuildingMeshes {
     this.group.name = 'Buildings';
     for (const building of city.buildings) {
       const geometry = new BoxGeometry(building.width, building.height, building.depth);
-      const material = new MeshStandardMaterial({ color: building.color, roughness: 0.8, metalness: 0.3 });
+      const material = createWindowMaterial(building);
       const mesh = new Mesh(geometry, material);
       mesh.name = `Building ${building.id}`;
       mesh.position.set(building.x, building.height / 2, building.z);
