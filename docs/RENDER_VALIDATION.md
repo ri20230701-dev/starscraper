@@ -99,19 +99,59 @@ no application browser/time globals, no explicit any, one RAF owner
 Capture order, composer passes, DPR, and preserveDrawingBuffer were separately
 checked by source inspection and independent review.
 
-## Browser acceptance still pending
+## Browser acceptance — partially completed 2026-09-11
 
-Browser navigation to `http://127.0.0.1:5174/` was rejected by the automatic browser
-approval review with: “The user declined permission for this action.” No alternate
-browser access was attempted after that rejection. A preceding headless Chrome
-launch also exited with SIGABRT/EPERM before a browser context was available.
+Codex could not reach a browser during implementation (navigation was declined and a
+headless Chrome launch exited with SIGABRT/EPERM). The checks below were run
+afterwards from the main session against the dev server on port 5178.
 
-Consequently, **visible night scene/bloom, actual GLSL compilation, decoded PNG
-pixels, resize behavior, Orbit interaction, and FPS have not been measured or
-verified**. Source inspection confirms the required composer capture path, but no
-nonblack-image or 30/60fps claim is made. Issue #1 is not acceptance-complete yet.
+Measurement conditions: desktop Chrome, viewport 3440×1352, **devicePixelRatio 1**,
+`ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro)`.
 
-When browser access is authorized:
+Confirmed in the browser:
+
+- **The scene renders.** The canvas shows the city; `gl.isContextLost()` is false.
+- **The GLSL compiles.** A console read filtered on `starscraper|rror|WebGL|shader|GLSL|THREE`
+  returned no messages after a reload. A failed program link would surface a
+  `THREE.WebGLProgram` error here.
+- **Window geometry is correct.** Under 2.2× zoom the grids are legible and window size
+  is visually constant across buildings of differing widths and depths — the central
+  acceptance criterion for the shader approach.
+- **Per-building lit ratio reads.** Sparse and dense buildings are distinguishable,
+  which is the mechanism PLAN.md §4 relies on to express `pushed_at`.
+
+### Exposure correction applied after the first browser look
+
+The first render was badly overexposed: facades blew out to cream and the city read as
+a glowing blob rather than a skyline. Source inspection had not caught this — it only
+became visible on screen. Values changed:
+
+| Parameter | Before | After |
+| --- | --- | --- |
+| `DirectionalLight` (moon) | 1.3 | 0.55 |
+| `HemisphereLight` | 0.65 | 0.32 |
+| Window emission multiplier | 5.5 | 3.2 |
+| Facade base color multiplier | 0.36 | 0.55 |
+| `toneMappingExposure` | 1.1 | 1.0 |
+| Bloom (strength, radius, threshold) | 0.85, 0.45, 1.0 | 0.75, 0.6, 1.0 |
+
+An intermediate pass (moon 0.22 / emission 2.2 / bloom strength 0.55) was too dark —
+the buildings lost all mass and became scattered dots. The committed values are the
+midpoint. They are a working baseline, not final: issue #7 retunes against real data.
+
+### Still not verified
+
+- **FPS was not measured.** `requestAnimationFrame` is suspended while the automated
+  tab is backgrounded (`document.hidden === true`; 0 of 180 frames collected), so no
+  30/60fps claim is made. This needs a foreground tab.
+- **PNG pixels were not decoded.** Clicking Save PNG downloads a file, which was out of
+  scope for this pass. The composer capture path is confirmed by source inspection
+  only; no nonblack-image claim is made.
+- Resize behavior, Orbit interaction, and the WebGL-failure UI are unexercised.
+- All observations are at **DPR 1**, so no claim is made about fine texture or shading
+  quality at higher pixel ratios.
+
+Remaining checks when a foreground browser is available:
 
 1. Open the dev URL in desktop Chrome and inspect errors and `[starscraper scene]`
    logs (100 buildings, draw calls, triangle/geometry count, preserveDrawingBuffer).

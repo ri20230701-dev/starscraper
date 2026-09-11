@@ -35,12 +35,14 @@ export class ThreeCityRenderer implements CityRenderer {
       this.renderer.info.autoReset = false;
       this.renderer.outputColorSpace = SRGBColorSpace;
       this.renderer.toneMapping = ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.1;
+      this.renderer.toneMappingExposure = 1.0;
       this.scene = new Scene();
       this.scene.background = new Color('#050a16');
       this.scene.fog = new FogExp2('#050a16', 0.0025);
-      this.scene.add(new HemisphereLight('#8ba9e0', '#101724', 0.65));
-      const moon = new DirectionalLight('#b4d0ff', 1.3);
+      // The city must read as lit *by its own windows*. Ambient and moonlight only
+      // carve the silhouettes; anything brighter turns the facades into daylight.
+      this.scene.add(new HemisphereLight('#8ba9e0', '#101724', 0.32));
+      const moon = new DirectionalLight('#b4d0ff', 0.55);
       moon.position.set(-80, 180, 70);
       this.scene.add(moon);
       this.ground = new Mesh(new PlaneGeometry(2200, 2200), new MeshStandardMaterial({

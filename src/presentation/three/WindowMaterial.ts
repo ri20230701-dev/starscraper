@@ -71,12 +71,12 @@ vec2 buildingWindows() {
 export function createWindowMaterial(building: BuildingSnapshot): MeshStandardMaterial {
   const layout = calculateWindowLayout(building);
   const material = new MeshStandardMaterial({
-    color: new Color(building.color).multiplyScalar(0.36),
+    color: new Color(building.color).multiplyScalar(0.55),
     roughness: 0.82,
     metalness: 0.28,
   });
   material.name = `Building ${building.id} procedural windows`;
-  const emission = new Color(building.id % 5 === 0 ? '#c3e7ff' : '#ffdab0').multiplyScalar(5.5);
+  const emission = new Color(building.id % 5 === 0 ? '#c3e7ff' : '#ffdab0').multiplyScalar(3.2);
   material.onBeforeCompile = shader => {
     shader.uniforms.uBuildingDimensions = { value: new Vector3(building.width, building.height, building.depth) };
     shader.uniforms.uWindowCounts = {

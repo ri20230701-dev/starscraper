@@ -18,7 +18,7 @@ export class CityPostProcessing {
     this.composer = new EffectComposer(renderer, target);
     this.renderPass = new RenderPass(scene, camera);
     // Only HDR windows exceed 1.0; a moderate halo keeps the window grid legible.
-    this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.85, 0.45, 1.0);
+    this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.75, 0.6, 1.0);
     this.outputPass = new OutputPass();
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
