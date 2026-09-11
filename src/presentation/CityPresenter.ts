@@ -13,11 +13,13 @@ export class CityPresenter {
     private readonly createCity: CreateDummyCity,
     private readonly renderer: CityRenderer,
     private readonly hud: CityHud,
-  ) {}
+  ) {
+    import.meta.hot?.dispose(() => this.dispose());
+  }
 
   start(): void {
     if (this.running) return;
-    const viewport = this.hud.mount();
+    const viewport = this.hud.mount(this.savePng);
     try {
       this.renderer.mount(viewport, this.createCity.execute(), this.onFailure);
       this.renderer.renderFinal();
@@ -31,7 +33,6 @@ export class CityPresenter {
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('pageshow', this.onPageShow);
-    import.meta.hot?.dispose(() => this.dispose());
   }
 
   private readonly tick = (timestamp: number): void => {
@@ -49,14 +50,14 @@ export class CityPresenter {
     if (this.frameTimes.length < 300) return;
     const sorted = [...this.frameTimes].sort((a, b) => a - b);
     const mean = this.frameTimes.reduce((sum, time) => sum + time, 0) / this.frameTimes.length;
-    console.info('[starscraper performance]', {
+    console.info('[starscraper performance]', JSON.stringify({
       samples: this.frameTimes.length,
       fps: Number((1000 / mean).toFixed(1)),
       meanFrameMs: Number(mean.toFixed(2)),
       p95FrameMs: Number((sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0).toFixed(2)),
       viewport: `${window.innerWidth}x${window.innerHeight}`,
       dpr: Math.min(window.devicePixelRatio || 1, 1.5),
-    });
+    }));
     this.frameTimes.length = 0;
   }
 
@@ -68,6 +69,15 @@ export class CityPresenter {
   private readonly onFailure = (): void => {
     this.stop();
     this.hud.showUnavailable();
+  };
+
+  private readonly savePng = (): void => {
+    try {
+      this.hud.downloadPng(this.renderer.capturePng());
+    } catch (error: unknown) {
+      console.error('PNG capture failed:', error);
+      this.hud.showCaptureError();
+    }
   };
 
   private readonly onPageHide = (event: PageTransitionEvent): void => {

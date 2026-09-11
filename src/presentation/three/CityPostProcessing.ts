@@ -1,0 +1,47 @@
+import { HalfFloatType, Vector2, WebGLRenderTarget } from 'three';
+import type { PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/** HDR until the final output transform; display and PNG share this exact chain. */
+export class CityPostProcessing {
+  private readonly composer: EffectComposer;
+  private readonly renderPass: RenderPass;
+  private readonly bloomPass: UnrealBloomPass;
+  private readonly outputPass: OutputPass;
+
+  constructor(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera) {
+    // Default-framebuffer antialiasing does not antialias the composer's scene target.
+    const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(renderer, target);
+    this.renderPass = new RenderPass(scene, camera);
+    // Only HDR windows exceed 1.0; a moderate halo keeps the window grid legible.
+    this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.85, 0.45, 1.0);
+    this.outputPass = new OutputPass();
+    this.composer.addPass(this.renderPass);
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(this.outputPass);
+  }
+
+  resize(width: number, height: number, pixelRatio: number): void {
+    this.composer.setPixelRatio(pixelRatio);
+    this.composer.setSize(width, height);
+  }
+
+  render(): void {
+    // No simulation time advances here, including when called synchronously for PNG.
+    this.composer.render(0);
+  }
+
+  dispose(): void {
+    this.renderPass.dispose();
+    this.bloomPass.dispose();
+    // Three r186's pass disposer omits this threshold-filter material.
+    this.bloomPass.materialHighPassFilter.dispose();
+    this.outputPass.dispose();
+    // Disposes both HDR targets and the composer's internal copy pass.
+    this.composer.dispose();
+  }
+}

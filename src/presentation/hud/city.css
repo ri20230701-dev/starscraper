@@ -20,6 +20,10 @@ h1 { font: 400 clamp(30px, 3.4vw, 50px)/1.1 'Space Grotesk', sans-serif; letter-
 .scene-status { margin: 0 0 8px; font-size: 12px; font-weight: 500; letter-spacing: .5px; }
 .controls-hint { margin: 0; font-size: 11px; color: #8e9aad; }
 .controls-hint span { padding: 0 8px; color: #4a5668; }
+.save-group { display: flex; align-items: center; gap: 24px; }
+.save-button { display: flex; align-items: center; gap: 10px; border: 1px solid #b8d6c3; border-radius: 5px; background: #c8e3d1; color: #142723; padding: 12px 17px; font: 600 12px 'DM Sans', sans-serif; cursor: pointer; pointer-events: auto; }
+.save-button:hover { background: #e0f2e4; }
+.save-button:disabled { opacity: .45; cursor: default; }
 .unavailable .scene-status { color: #ffcc9f; max-width: 34rem; line-height: 1.7; }
 :focus-visible { outline: 2px solid #c4e4d6; outline-offset: 6px; }
 @media (max-width: 640px) {
