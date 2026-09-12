@@ -7,6 +7,7 @@ varying vec3 vBuildingPosition;
 varying vec3 vBuildingNormal;
 uniform vec3 uBuildingDimensions;
 uniform vec3 uWindowCounts;
+uniform vec3 uWindowMargins;
 uniform vec2 uWindowPitch;
 uniform vec2 uWindowAperture;
 uniform uint uBuildingId;
@@ -39,7 +40,7 @@ vec2 buildingWindows() {
                           : vBuildingPosition.x * sign(vBuildingNormal.z);
   vec2 local = vec2(horizontal, vBuildingPosition.y);
   // BoxGeometry has physical dimensions, so this is a world-unit grid, not stretched UVs.
-  vec2 margin = (extent - count * uWindowPitch) * 0.5;
+  vec2 margin = vec2(side ? uWindowMargins.z : uWindowMargins.x, uWindowMargins.y);
   vec2 cellPosition = (local + extent * 0.5 - margin) / uWindowPitch;
   vec2 footprint = max(fwidth(cellPosition), vec2(0.00001));
   if (abs(vBuildingNormal.y) > 0.5 || min(count.x, count.y) < 1.0) return vec2(0.0);
@@ -81,6 +82,9 @@ export function createWindowMaterial(building: BuildingSnapshot): MeshStandardMa
     shader.uniforms.uBuildingDimensions = { value: new Vector3(building.width, building.height, building.depth) };
     shader.uniforms.uWindowCounts = {
       value: new Vector3(layout.front.horizontal.count, layout.front.vertical.count, layout.side.horizontal.count),
+    };
+    shader.uniforms.uWindowMargins = {
+      value: new Vector3(layout.front.horizontal.margin, layout.front.vertical.margin, layout.side.horizontal.margin),
     };
     shader.uniforms.uWindowPitch = { value: new Vector2(WINDOW_GRID.horizontalPitch, WINDOW_GRID.verticalPitch) };
     shader.uniforms.uWindowAperture = { value: new Vector2(WINDOW_GRID.windowWidth, WINDOW_GRID.windowHeight) };
