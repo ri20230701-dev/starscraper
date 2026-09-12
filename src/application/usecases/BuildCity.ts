@@ -11,7 +11,7 @@ import type { BuildingSnapshot, CitySnapshot } from '../dto/CitySnapshot';
 export class BuildCity {
   execute(repositories: readonly Repository[], referenceTime: number): CitySnapshot {
     const layout = layoutCity(repositories, referenceTime);
-    const buildings: BuildingSnapshot[] = layout.buildings.map((building, id) => ({
+    const buildings: BuildingSnapshot[] = layout.buildings.map((building, id) => Object.freeze({
       id,
       x: building.x,
       z: building.z,
@@ -20,6 +20,13 @@ export class BuildCity {
       height: building.height,
       color: building.color,
       windowLitRatio: building.windowLitRatio,
+      name: building.name,
+      htmlUrl: building.htmlUrl,
+      description: building.description,
+      language: building.language,
+      stars: building.stars,
+      pushedAt: building.pushedAt,
+      isFork: building.isFork,
     }));
     return Object.freeze({ buildings: Object.freeze(buildings) });
   }
