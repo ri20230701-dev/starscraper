@@ -27,7 +27,8 @@ class StubRenderer implements CityRenderer {
   readonly mounted: CitySnapshot[] = [];
   failOnNextMount = false;
 
-  mount(_container: HTMLElement, city: CitySnapshot): void {
+  mount(_container: HTMLElement, city: CitySnapshot, onFailure: () => void): void {
+    this.onFailure = onFailure;
     if (this.failOnNextMount) {
       this.failOnNextMount = false;
       throw new Error('WebGL unavailable');
@@ -51,6 +52,13 @@ class StubRenderer implements CityRenderer {
   releaseLock(): void {
     this.walking = false;
     this.notifyLock?.(false);
+  }
+
+  private onFailure: (() => void) | null = null;
+
+  /** Drop the scene the way a browser does when it takes the WebGL context away. */
+  loseContext(): void {
+    this.onFailure?.();
   }
 
   pickAtCentre(): null { return null; }
@@ -255,8 +263,29 @@ describe('the address bar, the form and the city never disagree', () => {
     renderer.failOnNextMount = true;
     presenter.start();
     expect(document.querySelector<HTMLButtonElement>('[data-testid="save-png"]')?.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.disabled).toBe(true);
     expect(document.querySelector('[data-testid="scene-status"]')?.textContent).toContain('WebGL');
+    presenter.dispose();
+  });
+
+  it.each(['save-png', 'walk-toggle'])('disables %s once the scene is gone', testid => {
+    // Checked one control at a time: asserting them together let a regression in either
+    // hide behind the other still being disabled.
+    const { presenter, renderer } = harness();
+    presenter.start();
+    expect(document.querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`)?.disabled).toBe(false);
+    renderer.failOnNextMount = true;
+    document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.click();
+    presenter.dispose();
+  });
+
+  it('takes both controls away when the context is lost', () => {
+    const { presenter, renderer } = harness();
+    presenter.start();
+    renderer.loseContext();
+    for (const testid of ['save-png', 'walk-toggle']) {
+      expect(document.querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`)?.disabled,
+        `${testid} stayed pressable after the scene was gone`).toBe(true);
+    }
     presenter.dispose();
   });
 
