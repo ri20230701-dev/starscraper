@@ -1,15 +1,23 @@
 import './city.css';
+import type { CityMessage } from './cityMessages';
+
+export interface CityHudHandlers {
+  readonly onSave: () => void;
+  readonly onSubmit: (username: string) => void;
+}
 
 export class CityHud {
   private root: HTMLElement | null = null;
   private saveButton: HTMLButtonElement | null = null;
-  private onSave: (() => void) | null = null;
+  private form: HTMLFormElement | null = null;
+  private input: HTMLInputElement | null = null;
+  private handlers: CityHudHandlers | null = null;
 
-  mount(onSave: () => void): HTMLElement {
+  mount(handlers: CityHudHandlers): HTMLElement {
     const root = document.getElementById('app');
     if (!root) throw new Error('Missing application root.');
     this.root = root;
-    this.onSave = onSave;
+    this.handlers = handlers;
     root.classList.remove('unavailable');
     root.innerHTML = `
       <div class="city-viewport"></div>
@@ -20,7 +28,15 @@ export class CityHud {
       <section class="intro" aria-label="Scene information">
         <p class="eyebrow"><span class="live-dot"></span> A CITY AFTER DARK</p>
         <h1>Every window,<br>a little life.</h1>
-        <p class="intro-copy">One hundred buildings. A thousand little lights.<br>A first glimpse of a city made from code.</p>
+        <p class="intro-copy">Every repository becomes a building.<br>Stars raise it, and the last push keeps its windows lit.</p>
+        <form class="lookup" data-testid="lookup-form" autocomplete="off">
+          <label class="lookup-label" for="username">GitHub username</label>
+          <div class="lookup-row">
+            <input class="lookup-input" data-testid="username-input" id="username" name="u"
+              type="text" inputmode="latin" spellcheck="false" placeholder="torvalds" maxlength="39">
+            <button class="lookup-button" data-testid="lookup-submit" type="submit">Build</button>
+          </div>
+        </form>
       </section>
       <footer class="toolbar">
         <div><p class="scene-status" data-testid="scene-status" role="status">Starting the city…</p>
@@ -36,12 +52,48 @@ export class CityHud {
     if (!viewport) throw new Error('Missing city viewport.');
     this.saveButton = root.querySelector<HTMLButtonElement>('[data-testid="save-png"]');
     this.saveButton?.addEventListener('click', this.save);
+    this.form = root.querySelector<HTMLFormElement>('[data-testid="lookup-form"]');
+    this.input = root.querySelector<HTMLInputElement>('[data-testid="username-input"]');
+    this.form?.addEventListener('submit', this.submit);
     return viewport;
   }
 
   showReady(): void {
-    this.status('100 buildings · Orbit');
     if (this.saveButton) this.saveButton.disabled = false;
+  }
+
+  /** Reflect the city now on screen: its message, and whose name the field should hold. */
+  showCity(message: CityMessage, username: string | null, buildings: number): void {
+    this.status(`${message.text} · ${buildings} buildings`);
+    this.root?.dataset && (this.root.dataset['tone'] = message.tone);
+    this.setFixtureLabel(message.usingSample);
+    if (this.input && this.input !== this.root?.ownerDocument.activeElement) {
+      this.input.value = username ?? '';
+    }
+  }
+
+  showLoading(username: string): void {
+    this.status(`Looking up ${username}…`);
+    this.setBusy(true);
+  }
+
+  showIdle(): void {
+    this.setBusy(false);
+  }
+
+  showInvalidUsername(value: string): void {
+    this.status(`"${value}" is not a GitHub username.`);
+  }
+
+  private setBusy(busy: boolean): void {
+    if (this.input) this.input.disabled = busy;
+    const submit = this.root?.querySelector<HTMLButtonElement>('[data-testid="lookup-submit"]');
+    if (submit) submit.disabled = busy;
+  }
+
+  private setFixtureLabel(usingSample: boolean): void {
+    const label = this.root?.querySelector<HTMLElement>('.fixture-label');
+    if (label) label.textContent = usingSample ? 'SAMPLE CITY' : 'LIVE FROM GITHUB';
   }
 
   showUnavailable(): void {
@@ -58,14 +110,19 @@ export class CityHud {
     this.root?.append(link);
     link.click();
     link.remove();
-    this.status('PNG saved · 100 buildings · Orbit');
+    this.status('PNG saved.');
   }
 
   showCaptureError(): void {
     this.status('PNG could not be saved. Try again after the city is ready.');
   }
 
-  private readonly save = (): void => { this.onSave?.(); };
+  private readonly save = (): void => { this.handlers?.onSave(); };
+
+  private readonly submit = (event: Event): void => {
+    event.preventDefault();
+    this.handlers?.onSubmit(this.input?.value.trim() ?? '');
+  };
 
   private status(message: string): void {
     const status = this.root?.querySelector<HTMLElement>('[data-testid="scene-status"]');
@@ -74,8 +131,11 @@ export class CityHud {
 
   dispose(): void {
     this.saveButton?.removeEventListener('click', this.save);
+    this.form?.removeEventListener('submit', this.submit);
     this.saveButton = null;
-    this.onSave = null;
+    this.form = null;
+    this.input = null;
+    this.handlers = null;
     this.root?.replaceChildren();
     this.root = null;
   }
