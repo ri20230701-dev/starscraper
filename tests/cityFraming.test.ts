@@ -23,6 +23,11 @@ const block = city(Array.from({ length: 100 }, (_unused, index) => building({
   x: (index % 10) * 24 + 48, z: Math.floor(index / 10) * 24 + 48, height: 12 + index,
 })));
 
+/** An account whose repositories all reach the widest plot, which spreads the city out. */
+const wideBlock = city(Array.from({ length: 100 }, (_unused, index) => building({
+  x: (index % 10) * 24 + 48, z: Math.floor(index / 10) * 24 + 48, width: 18, depth: 18, height: 12,
+})));
+
 /** Every corner of every building, in world space. */
 function corners(snapshot: CitySnapshot): Vector3[] {
   return snapshot.buildings.flatMap(item => [-1, 1].flatMap(sx => [0, 1].flatMap(sy => [-1, 1].map(sz =>
@@ -69,12 +74,18 @@ describe('the opening shot actually contains the city', () => {
     expect(worstY).toBeLessThanOrEqual(1);
   });
 
-  it('keeps the whole city inside the far plane, even fully zoomed out', () => {
-    const { framing, furthest } = worstProjection(block, 0.42);
-    // The furthest a visitor may pull back, plus the depth of the city behind the target.
-    const radius = furthest;
-    expect(framing.far).toBeGreaterThan(framing.maxDistance + radius * 0.1);
-    expect(framing.far).toBeGreaterThan(furthest);
+  it.each([
+    ['a hundred buildings on a phone', block, 0.42],
+    ['a hundred wide plots on a phone', wideBlock, 0.42],
+    ['a hundred wide plots on a desktop', wideBlock, 1.78],
+  ])('keeps the whole city inside the far plane at full zoom-out: %s', (_name, snapshot, aspect) => {
+    const framing = frameCity(snapshot, FOV, aspect);
+    const target = new Vector3(...framing.target);
+    // Distance from the pivot to the furthest corner. At maximum zoom the camera sits
+    // maxDistance from that pivot, so the deepest point is the sum of the two. A far
+    // plane fixed for a small scene let an entire city vanish at the allowed zoom.
+    const cityRadius = Math.max(...corners(snapshot).map(corner => corner.distanceTo(target)));
+    expect(framing.far).toBeGreaterThan(framing.maxDistance + cityRadius);
   });
 
   it('leaves the city visible through the fog at the opening distance', () => {
