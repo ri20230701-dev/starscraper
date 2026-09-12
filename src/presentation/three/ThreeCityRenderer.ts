@@ -7,6 +7,7 @@ import type { CityRenderer } from '../ports/CityRenderer';
 import { CityOrbitControls } from '../input/CityOrbitControls';
 import { BuildingMeshes } from './BuildingMeshes';
 import { CityPostProcessing } from './CityPostProcessing';
+import { frameCity } from './cityFraming';
 
 /** Passive graphics adapter. CityPresenter alone schedules frames. */
 export class ThreeCityRenderer implements CityRenderer {
@@ -38,7 +39,6 @@ export class ThreeCityRenderer implements CityRenderer {
       this.renderer.toneMappingExposure = 1.0;
       this.scene = new Scene();
       this.scene.background = new Color('#050a16');
-      this.scene.fog = new FogExp2('#050a16', 0.0025);
       // The city must read as lit *by its own windows*. Ambient and moonlight only
       // carve the silhouettes; anything brighter turns the facades into daylight.
       this.scene.add(new HemisphereLight('#8ba9e0', '#101724', 0.32));
@@ -54,10 +54,15 @@ export class ThreeCityRenderer implements CityRenderer {
       this.scene.add(this.ground);
       this.buildings = new BuildingMeshes(city);
       this.scene.add(this.buildings.group);
-      this.camera = new PerspectiveCamera(43, 1, 0.5, 1800);
-      this.camera.position.set(260, 200, 300);
+      const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+      const framing = frameCity(city, 43, aspect);
+      // Fog and the far plane follow the city's size. Fixed values buried a large city
+      // in haze and let the furthest allowed zoom push every building past the far plane.
+      this.scene.fog = new FogExp2('#050a16', framing.fogDensity);
+      this.camera = new PerspectiveCamera(43, aspect, 0.5, framing.far);
+      this.camera.position.set(...framing.position);
       container.append(canvas);
-      this.controls = new CityOrbitControls(this.camera, canvas);
+      this.controls = new CityOrbitControls(this.camera, canvas, framing);
       this.postProcessing = new CityPostProcessing(this.renderer, this.scene, this.camera);
       canvas.addEventListener('webglcontextlost', this.onContextLost);
       this.observer = new ResizeObserver(this.resize);

@@ -42,13 +42,25 @@ export function cellCentre(cell: GridCell): { readonly x: number; readonly z: nu
 }
 
 /**
- * Square-ring spiral outward from the origin. Walking outward is what puts the most
+ * Where the spiral begins: the middle of a block rather than an intersection.
+ *
+ * Starting at the origin puts the first cell on a crossroads, so the earliest plots are
+ * the four diagonal corners around it and a small account reads as scattered blocks with
+ * a hole in the middle. Beginning inside a block keeps the first buildings adjacent.
+ */
+const SPIRAL_ORIGIN = Object.freeze({
+  gx: Math.floor(CITY_GRID.roadPeriod / 2),
+  gz: Math.floor(CITY_GRID.roadPeriod / 2),
+});
+
+/**
+ * Square-ring spiral outward from the block centre. Walking outward is what puts the most
  * recently pushed repositories downtown; the caller skips road cells as it goes.
  */
 export function* spiralCells(): Generator<GridCell> {
-  yield { gx: 0, gz: 0 };
-  let gx = 0;
-  let gz = 0;
+  yield { gx: SPIRAL_ORIGIN.gx, gz: SPIRAL_ORIGIN.gz };
+  let gx = SPIRAL_ORIGIN.gx;
+  let gz = SPIRAL_ORIGIN.gz;
   let stepX = 1;
   let stepZ = 0;
   let runLength = 1;
