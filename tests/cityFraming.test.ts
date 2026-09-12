@@ -1,6 +1,7 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { BuildingSnapshot, CitySnapshot } from '../src/application/dto/CitySnapshot';
+import { BuildCity } from '../src/application/usecases/BuildCity';
 import { frameCity } from '../src/presentation/three/cityFraming';
 
 const FOV = 43;
@@ -23,10 +24,19 @@ const block = city(Array.from({ length: 100 }, (_unused, index) => building({
   x: (index % 10) * 24 + 48, z: Math.floor(index / 10) * 24 + 48, height: 12 + index,
 })));
 
-/** An account whose repositories all reach the widest plot, which spreads the city out. */
-const wideBlock = city(Array.from({ length: 100 }, (_unused, index) => building({
-  x: (index % 10) * 24 + 48, z: Math.floor(index / 10) * 24 + 48, width: 18, depth: 18, height: 12,
-})));
+/**
+ * An account whose repositories all reach the widest plot, built through the real
+ * placement rules. The road grid spreads a hundred of these much further than a bare
+ * ten-by-ten arrangement, which is what pushed the furthest zoom past a fixed far plane.
+ */
+const wideBlock = new BuildCity().execute(
+  Array.from({ length: 100 }, (_unused, index) => ({
+    name: `repo-${String(index).padStart(3, '0')}`,
+    stars: 0, forks: 0, language: null, pushedAt: null, isFork: false,
+    sizeKb: 102_400, description: null, htmlUrl: 'https://github.com/x/y',
+  })),
+  Date.UTC(2026, 0, 1),
+);
 
 /** Every corner of every building, in world space. */
 function corners(snapshot: CitySnapshot): Vector3[] {
