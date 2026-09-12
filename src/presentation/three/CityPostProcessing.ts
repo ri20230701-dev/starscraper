@@ -6,6 +6,12 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 /** HDR until the final output transform; display and PNG share this exact chain. */
+/**
+ * Radiance a surface must exceed before it blooms. Exported because the window emission
+ * is chosen against it: the two numbers only make sense together.
+ */
+export const BLOOM_THRESHOLD = 1.15;
+
 export class CityPostProcessing {
   private readonly composer: EffectComposer;
   private readonly renderPass: RenderPass;
@@ -20,7 +26,7 @@ export class CityPostProcessing {
     // Only HDR windows exceed 1.0; a moderate halo keeps the window grid legible.
     // Strength and radius are held down so the halo separates buildings instead of
     // fusing the skyline into one bright mass; the threshold keeps the walls out of it.
-    this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.48, 0.42, 1.15);
+    this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.48, 0.42, BLOOM_THRESHOLD);
     this.outputPass = new OutputPass();
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);

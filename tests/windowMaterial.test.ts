@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildingSnapshot } from '../src/application/dto/CitySnapshot';
 import { createWindowMaterial } from '../src/presentation/three/WindowMaterial';
+import { BLOOM_THRESHOLD } from '../src/presentation/three/CityPostProcessing';
 
 type WindowMaterial = ReturnType<typeof createWindowMaterial>;
 type CompileArguments = Parameters<WindowMaterial['onBeforeCompile']>;
@@ -97,6 +98,42 @@ describe('window material shader connection', () => {
     } finally {
       firstMaterial.dispose();
       secondMaterial.dispose();
+    }
+  });
+});
+
+describe('the night look rests on two numbers agreeing', () => {
+  it('emits windows above the bloom threshold while walls stay below it', () => {
+    // The whole design is "only the windows bloom". Raising the threshold without
+    // checking it against the emission multiplier would quietly extinguish the city,
+    // and lowering it would set the walls glowing.
+    const material = createWindowMaterial(narrowBuilding);
+    try {
+      const shader = compile(material);
+      const emission = shader.uniforms['uWindowEmission']?.value as { r: number; g: number; b: number };
+      const brightest = Math.max(emission.r, emission.g, emission.b);
+      expect(brightest, 'windows no longer clear the bloom threshold').toBeGreaterThan(BLOOM_THRESHOLD * 1.5);
+
+      // Walls are the repository colour scaled down and lit only by a dim sky, so their
+      // radiance cannot approach the threshold.
+      const wall = material.color;
+      expect(Math.max(wall.r, wall.g, wall.b)).toBeLessThan(BLOOM_THRESHOLD * 0.6);
+    } finally {
+      material.dispose();
+    }
+  });
+
+  it('never puts a window on a roof', () => {
+    const material = createWindowMaterial(narrowBuilding);
+    try {
+      const shader = compile(material);
+      // The roof is excluded in the coverage function and darkened separately; both
+      // have to survive, or the skyline grows lit lids seen from above.
+      expect(shader.fragmentShader).toContain('abs(vBuildingNormal.y) > 0.5');
+      expect(shader.fragmentShader).toContain('roofMask()');
+      expect(shader.fragmentShader).toContain('step(0.5, abs(vBuildingNormal.y))');
+    } finally {
+      material.dispose();
     }
   });
 });
