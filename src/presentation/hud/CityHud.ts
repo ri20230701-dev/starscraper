@@ -72,6 +72,13 @@ export class CityHud {
     }
   }
 
+  /** Put a name back in the field without rebuilding the city, as after a history move. */
+  showCityName(username: string | null): void {
+    if (this.input && this.input !== this.root?.ownerDocument.activeElement) {
+      this.input.value = username ?? '';
+    }
+  }
+
   showLoading(username: string): void {
     this.status(`Looking up ${username}…`);
     this.setBusy(true);

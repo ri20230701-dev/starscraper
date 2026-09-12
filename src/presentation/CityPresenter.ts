@@ -12,6 +12,12 @@ export class CityPresenter {
 
   private viewport: HTMLElement | null = null;
   private username: string | null = null;
+  /**
+   * Which lookup currently owns the screen. The switcher guards which answer may draw;
+   * this guards the busy state, because an older request finishing was re-enabling the
+   * form while the newest one was still in flight.
+   */
+  private request = 0;
 
   constructor(
     private readonly switcher: CitySwitcher,
@@ -49,17 +55,24 @@ export class CityPresenter {
    */
   private show(view: CityView): void {
     if (!this.viewport) return;
-    this.renderer.mount(this.viewport, view.city, this.onFailure);
-    this.renderer.renderFinal();
+    try {
+      this.renderer.mount(this.viewport, view.city, this.onFailure);
+      this.renderer.renderFinal();
+    } catch (error: unknown) {
+      // mount() releases the previous scene before building the new one, so a failure
+      // here leaves nothing on screen. Reporting it beats leaving a dead canvas behind
+      // a status line that still claims a city is loading.
+      console.error('City render failed:', error);
+      this.onFailure();
+      return;
+    }
     this.username = view.username;
     this.hud.showCity(view.message, view.username, view.city.buildings.length);
   }
 
   private readonly onSubmit = (value: string): void => {
     if (value === '') {
-      this.switcher.cancel();
-      this.show(this.switcher.sampleView());
-      this.writeAddress(null, 'push');
+      this.showSample('push');
       return;
     }
     if (!isValidUsername(value)) {
@@ -69,18 +82,32 @@ export class CityPresenter {
     void this.lookup(value, 'push');
   };
 
-  private async lookup(username: string, history: 'push' | 'replace'): Promise<void> {
+  /** Show the bundled city and settle every pending state, with no request outstanding. */
+  private showSample(history: 'push' | 'replace' | 'none'): void {
+    this.request += 1;
+    this.switcher.cancel();
+    this.show(this.switcher.sampleView());
+    // Nothing is in flight, so the form has to be usable again immediately rather than
+    // waiting for a cancelled lookup to run its own cleanup.
+    this.hud.showIdle();
+    if (history !== 'none') this.writeAddress(null, history);
+  }
+
+  private async lookup(username: string, history: 'push' | 'replace' | 'none'): Promise<void> {
+    const request = ++this.request;
     this.hud.showLoading(username);
     // The address changes immediately so the link is shareable while the city loads;
     // the switcher's generation guard keeps a late answer from contradicting it.
-    this.writeAddress(username, history);
+    if (history !== 'none') this.writeAddress(username, history);
     try {
       const view = await this.switcher.resolve(username);
       if (view !== null) this.show(view);
     } catch (error: unknown) {
       console.error('City lookup failed:', error);
     } finally {
-      this.hud.showIdle();
+      // Only the newest request may release the form. An older one finishing used to
+      // unlock it while the current lookup was still running.
+      if (request === this.request) this.hud.showIdle();
     }
   }
 
@@ -94,24 +121,24 @@ export class CityPresenter {
   }
 
   private readonly onPopState = (): void => {
-    const requested = usernameFromSearch(window.location.search);
-    if (requested === this.username) return;
+    // Abandon whatever is in flight before deciding anything else. Returning early on a
+    // name match used to skip this, so going Back during a lookup let that lookup land
+    // afterwards and draw a city the address bar no longer named.
+    this.request += 1;
     this.switcher.cancel();
-    if (requested === null) this.show(this.switcher.sampleView());
-    else void this.lookupWithoutHistory(requested);
-  };
-
-  private async lookupWithoutHistory(username: string): Promise<void> {
-    this.hud.showLoading(username);
-    try {
-      const view = await this.switcher.resolve(username);
-      if (view !== null) this.show(view);
-    } catch (error: unknown) {
-      console.error('City lookup failed:', error);
-    } finally {
-      this.hud.showIdle();
+    const requested = usernameFromSearch(window.location.search);
+    if (requested === null) {
+      this.showSample('none');
+      return;
     }
-  }
+    if (requested === this.username) {
+      // The city is already correct; just settle the form and the status line.
+      this.hud.showIdle();
+      this.hud.showCityName(requested);
+      return;
+    }
+    void this.lookup(requested, 'none');
+  };
 
   private readonly tick = (timestamp: number): void => {
     if (!this.running) return;
