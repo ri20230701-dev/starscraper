@@ -5,11 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Pages needs these; nothing else in the workflow writes to the repository.
+# Only the deploy job publishes, so only it gets the publishing rights. The build job
+# runs npm ci, which executes third-party code, and has no business holding them.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # A queued deploy should wait rather than cancel: the last push is what must win.
 concurrency:
@@ -36,6 +35,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
