@@ -29,7 +29,18 @@
     <meta name="twitter:image" content="https://ri20230701-dev.github.io/starscraper/og.jpg" />
   </head>
   <body>
-    <main id="app"></main>
+    <main id="app">
+      <!--
+        Static, because the view that used to carry this notice is itself built by
+        JavaScript: with scripting off the message was never written and the page
+        was simply blank.
+      -->
+      <noscript>
+        <p style="color:#eef5fa;font:400 15px/1.7 system-ui,sans-serif;padding:2rem;max-width:40ch">
+          starscraper draws its city with WebGL, so it needs JavaScript enabled.
+        </p>
+      </noscript>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
