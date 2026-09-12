@@ -27,6 +27,8 @@ export class CityHud {
   private form: HTMLFormElement | null = null;
   private input: HTMLInputElement | null = null;
   private walkButton: HTMLButtonElement | null = null;
+  private walking = false;
+  private busy = false;
   private handlers: CityHudHandlers | null = null;
 
   mount(handlers: CityHudHandlers): HTMLElement {
@@ -90,8 +92,9 @@ export class CityHud {
     if (crosshair) crosshair.hidden = !walking;
     if (this.walkButton) this.walkButton.textContent = walking ? 'Back to the skyline' : 'Walk the streets';
     // Typing and saving belong to the skyline view; both need the cursor back.
-    if (this.input) this.input.disabled = walking;
     if (this.saveButton) this.saveButton.disabled = walking;
+    this.walking = walking;
+    this.applyFormState();
     if (!walking) this.showSelection(null);
     this.status(walking
       ? 'WASD to move · Shift to run · Enter opens the repository · Esc to step back out'
@@ -156,9 +159,20 @@ export class CityHud {
   }
 
   private setBusy(busy: boolean): void {
-    if (this.input) this.input.disabled = busy;
+    this.busy = busy;
+    this.applyFormState();
+  }
+
+  /**
+   * One place decides whether the form is usable. Walking and loading each used to set
+   * the field's disabled flag on their own, so whichever finished last won and a button
+   * left enabled during a walk could still be reached with Tab and Space.
+   */
+  private applyFormState(): void {
+    const locked = this.busy || this.walking;
+    if (this.input) this.input.disabled = locked;
     const submit = this.root?.querySelector<HTMLButtonElement>('[data-testid="lookup-submit"]');
-    if (submit) submit.disabled = busy;
+    if (submit) submit.disabled = locked;
   }
 
   private setFixtureLabel(usingSample: boolean): void {
@@ -193,6 +207,10 @@ export class CityHud {
 
   private readonly submit = (event: Event): void => {
     event.preventDefault();
+    // A keyboard-activated submit must not start a lookup mid-walk. Loading is not a
+    // reason to refuse: changing your mind during a slow lookup is legitimate, and the
+    // generation guard already decides which answer may draw.
+    if (this.walking) return;
     this.handlers?.onSubmit(this.input?.value.trim() ?? '');
   };
 
