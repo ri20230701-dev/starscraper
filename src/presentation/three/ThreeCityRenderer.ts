@@ -1,13 +1,17 @@
 import {
-  ACESFilmicToneMapping, Color, DirectionalLight, FogExp2, HemisphereLight,
+  ACESFilmicToneMapping, Color, DirectionalLight, FogExp2, HemisphereLight, Raycaster, Vector2,
   Mesh, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Scene, SRGBColorSpace, WebGLRenderer,
 } from 'three';
-import type { CitySnapshot } from '../../application/dto/CitySnapshot';
-import type { CityRenderer } from '../ports/CityRenderer';
+import type { BuildingSnapshot, CitySnapshot } from '../../application/dto/CitySnapshot';
+import type { CityMode, CityRenderer } from '../ports/CityRenderer';
 import { CityOrbitControls } from '../input/CityOrbitControls';
+import { WalkControls } from '../input/WalkControls';
 import { BuildingMeshes } from './BuildingMeshes';
 import { CityPostProcessing } from './CityPostProcessing';
 import { frameCity } from './cityFraming';
+
+/** Normalised device coordinates for the middle of the screen. */
+const CENTRE = new Vector2(0, 0);
 
 /** Passive graphics adapter. CityPresenter alone schedules frames. */
 export class ThreeCityRenderer implements CityRenderer {
@@ -16,14 +20,21 @@ export class ThreeCityRenderer implements CityRenderer {
   private camera: PerspectiveCamera | null = null;
   private buildings: BuildingMeshes | null = null;
   private controls: CityOrbitControls | null = null;
+  private walk: WalkControls | null = null;
+  private mode: CityMode = 'orbit';
+  private framing: ReturnType<typeof frameCity> | null = null;
+  private readonly raycaster = new Raycaster();
   private postProcessing: CityPostProcessing | null = null;
   private ground: Mesh<PlaneGeometry, MeshStandardMaterial> | null = null;
   private observer: ResizeObserver | null = null;
   private container: HTMLElement | null = null;
+  private city: CitySnapshot = { buildings: [] };
   private onFailure: (() => void) | null = null;
 
   mount(container: HTMLElement, city: CitySnapshot, onFailure: () => void): void {
     this.dispose();
+    this.city = city;
+    this.mode = 'orbit';
     this.container = container;
     this.onFailure = onFailure;
     const canvas = container.ownerDocument.createElement('canvas');
@@ -56,6 +67,7 @@ export class ThreeCityRenderer implements CityRenderer {
       this.scene.add(this.buildings.group);
       const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
       const framing = frameCity(city, 43, aspect);
+      this.framing = framing;
       // Fog and the far plane follow the city's size. Fixed values buried a large city
       // in haze and let the furthest allowed zoom push every building past the far plane.
       this.scene.fog = new FogExp2('#050a16', framing.fogDensity);
@@ -84,7 +96,57 @@ export class ThreeCityRenderer implements CityRenderer {
   }
 
   update(deltaSeconds: number): void {
-    this.controls?.update(deltaSeconds);
+    if (this.mode === 'walk') this.walk?.update(deltaSeconds);
+    else this.controls?.update(deltaSeconds);
+  }
+
+  setMode(mode: CityMode, onLockChange: (locked: boolean) => void): void {
+    if (!this.camera || !this.renderer || !this.framing || this.mode === mode) return;
+    if (mode === 'orbit') {
+      this.toOrbit();
+      return;
+    }
+    this.mode = 'walk';
+    const walk = new WalkControls(this.camera, this.renderer.domElement, this.city,
+      { x: this.framing.target[0], z: this.framing.target[2] }, onLockChange);
+    this.walk = walk;
+    walk.attach();
+    this.controls?.setEnabled(false);
+    void walk.enter().then(granted => {
+      // A refusal has to put everything back, or the renderer sits in walk mode with no
+      // lock: the same-mode guard then makes the button do nothing for the rest of the
+      // session, and there is no lock to release with Esc either.
+      if (granted || this.walk !== walk) return;
+      this.toOrbit();
+      onLockChange(false);
+    });
+  }
+
+  private toOrbit(): void {
+    this.mode = 'orbit';
+    this.walk?.dispose();
+    this.walk = null;
+    if (this.camera && this.framing) {
+      this.camera.position.set(...this.framing.position);
+      this.camera.rotation.set(0, 0, 0);
+      this.controls?.reset(this.framing);
+    }
+    this.controls?.setEnabled(true);
+  }
+
+  /**
+   * What the crosshair is on. Pointer lock hides the cursor, so the centre of the screen
+   * is the only place a selection can come from while walking.
+   */
+  pickAtCentre(): BuildingSnapshot | null {
+    if (!this.camera || !this.buildings) return null;
+    // Walking moves the camera after the last render, so its world matrix is a frame
+    // behind. Without this the panel describes whatever was under the crosshair before
+    // the visitor turned.
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(CENTRE, this.camera);
+    const [hit] = this.raycaster.intersectObject(this.buildings.group, true);
+    return hit ? this.buildings.snapshotFor(hit.object) : null;
   }
 
   renderFinal(): void {
@@ -124,8 +186,11 @@ export class ThreeCityRenderer implements CityRenderer {
     this.observer?.disconnect();
     this.observer = null;
     window.removeEventListener('resize', this.resize);
+    this.walk?.dispose();
+    this.walk = null;
     this.controls?.dispose();
     this.controls = null;
+    this.framing = null;
     this.postProcessing?.dispose();
     this.postProcessing = null;
     this.buildings?.dispose();

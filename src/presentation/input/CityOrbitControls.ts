@@ -22,6 +22,23 @@ export class CityOrbitControls {
     this.controls.update(deltaSeconds);
   }
 
+  /**
+   * Orbit listeners stay bound even when nobody ticks them, and Three's wheel handler
+   * calls update() itself. A scroll while walking therefore lifted the camera off the
+   * street while collision still tracked the old position.
+   */
+  setEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
+  /** Return to the opening shot, as when a walker steps back out to the skyline view. */
+  reset(framing: CityFraming): void {
+    this.controls.target.set(...framing.target);
+    this.controls.minDistance = framing.minDistance;
+    this.controls.maxDistance = framing.maxDistance;
+    this.controls.update();
+  }
+
   dispose(): void {
     this.controls.dispose();
   }

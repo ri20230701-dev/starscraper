@@ -38,6 +38,22 @@ class StubRenderer implements CityRenderer {
   update(): void {}
   renderFinal(): void {}
   capturePng(): string { return 'data:image/png;base64,'; }
+
+  /** Whether a pointer lock request would be granted, so refusal can be exercised too. */
+  walking = false;
+  private notifyLock: ((locked: boolean) => void) | null = null;
+
+  setMode(mode: 'orbit' | 'walk', onLockChange: (locked: boolean) => void): void {
+    this.notifyLock = onLockChange;
+    onLockChange(mode === 'walk' && this.walking);
+  }
+
+  releaseLock(): void {
+    this.walking = false;
+    this.notifyLock?.(false);
+  }
+
+  pickAtCentre(): null { return null; }
   dispose(): void {}
 
   get names(): string[] {
@@ -187,6 +203,45 @@ describe('the address bar, the form and the city never disagree', () => {
     await settle('alpha', success(['alpha-one']));
     expect(state().status).toContain('WebGL');
     expect(state().status).not.toContain('Looking up');
+    presenter.dispose();
+  });
+
+  it('puts the whole form out of reach while walking', async () => {
+    // Walking hides the cursor, so a control left enabled is still reachable by Tab and
+    // Space. Disabling the field and the button separately let whichever ran last win.
+    const { presenter, renderer, state } = harness();
+    presenter.start();
+    renderer.walking = true;
+    document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.click();
+    await new Promise(done => { setTimeout(done, 0); });
+    const submit = document.querySelector<HTMLButtonElement>('[data-testid="lookup-submit"]');
+    expect(state().busy, 'the field stayed editable while walking').toBe(true);
+    expect(submit?.disabled, 'the submit button stayed reachable while walking').toBe(true);
+    expect(document.querySelector<HTMLElement>('[data-testid="crosshair"]')?.hidden).toBe(false);
+    presenter.dispose();
+  });
+
+  it('refuses a keyboard submit raised during a walk', async () => {
+    const { presenter, renderer, submit, state } = harness();
+    presenter.start();
+    renderer.walking = true;
+    document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.click();
+    await new Promise(done => { setTimeout(done, 0); });
+    const before = state().search;
+    await submit('someone');
+    expect(state().search, 'a submit slipped through during the walk').toBe(before);
+    presenter.dispose();
+  });
+
+  it('returns to the skyline when the lock is lost', async () => {
+    const { presenter, renderer, state } = harness();
+    presenter.start();
+    renderer.walking = true;
+    document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.click();
+    await new Promise(done => { setTimeout(done, 0); });
+    renderer.releaseLock();
+    expect(state().busy).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-testid="crosshair"]')?.hidden).toBe(true);
     presenter.dispose();
   });
 
