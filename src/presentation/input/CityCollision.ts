@@ -29,8 +29,20 @@ function key(bucketX: number, bucketZ: number): string {
  */
 export class CityCollision {
   private readonly buckets = new Map<string, Box[]>();
+  /**
+   * Half the narrowest building, so a single step can never straddle one.
+   *
+   * A step capped at half a bucket was wider than the smallest footprint: a ten unit
+   * move crossed a seven unit building with both ends legal and the middle inside it.
+   */
+  private readonly maxStep: number;
 
   constructor(city: CitySnapshot, radius: number) {
+    let narrowest = Infinity;
+    for (const building of city.buildings) {
+      narrowest = Math.min(narrowest, building.width + radius * 2, building.depth + radius * 2);
+    }
+    this.maxStep = Math.max(0.05, Math.min(BUCKET / 2, narrowest / 2));
     for (const building of city.buildings) {
       // Inflate by the walker's radius so a hit test is a point-in-box question.
       const box: Box = {
@@ -68,7 +80,7 @@ export class CityCollision {
   move(from: Point, deltaX: number, deltaZ: number): Point {
     const distance = Math.hypot(deltaX, deltaZ);
     if (distance === 0) return from;
-    const steps = Math.max(1, Math.ceil(distance / (BUCKET / 2)));
+    const steps = Math.max(1, Math.ceil(distance / this.maxStep));
     let current = from;
     for (let step = 0; step < steps; step += 1) {
       current = this.step(current, deltaX / steps, deltaZ / steps);
