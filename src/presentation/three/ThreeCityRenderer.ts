@@ -7,6 +7,7 @@ import type { CityRenderer } from '../ports/CityRenderer';
 import { CityOrbitControls } from '../input/CityOrbitControls';
 import { BuildingMeshes } from './BuildingMeshes';
 import { CityPostProcessing } from './CityPostProcessing';
+import { frameCity } from './cityFraming';
 
 /** Passive graphics adapter. CityPresenter alone schedules frames. */
 export class ThreeCityRenderer implements CityRenderer {
@@ -54,10 +55,12 @@ export class ThreeCityRenderer implements CityRenderer {
       this.scene.add(this.ground);
       this.buildings = new BuildingMeshes(city);
       this.scene.add(this.buildings.group);
-      this.camera = new PerspectiveCamera(43, 1, 0.5, 1800);
-      this.camera.position.set(260, 200, 300);
+      const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+      const framing = frameCity(city, 43, aspect);
+      this.camera = new PerspectiveCamera(43, aspect, 0.5, 4000);
+      this.camera.position.set(...framing.position);
       container.append(canvas);
-      this.controls = new CityOrbitControls(this.camera, canvas);
+      this.controls = new CityOrbitControls(this.camera, canvas, framing);
       this.postProcessing = new CityPostProcessing(this.renderer, this.scene, this.camera);
       canvas.addEventListener('webglcontextlost', this.onContextLost);
       this.observer = new ResizeObserver(this.resize);

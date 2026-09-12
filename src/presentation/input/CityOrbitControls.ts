@@ -1,16 +1,19 @@
 import type { PerspectiveCamera } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { CityFraming } from '../three/cityFraming';
 
 export class CityOrbitControls {
   private readonly controls: OrbitControls;
 
-  constructor(camera: PerspectiveCamera, canvas: HTMLCanvasElement) {
+  constructor(camera: PerspectiveCamera, canvas: HTMLCanvasElement, framing: CityFraming) {
     this.controls = new OrbitControls(camera, canvas);
-    this.controls.target.set(0, 23, 0);
+    this.controls.target.set(...framing.target);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.075;
-    this.controls.minDistance = 45;
-    this.controls.maxDistance = 650;
+    // The travel limits follow the city's own size; a four-repository account and a
+    // hundred-repository one need very different room to move.
+    this.controls.minDistance = framing.minDistance;
+    this.controls.maxDistance = framing.maxDistance;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.035;
     this.controls.update();
   }
