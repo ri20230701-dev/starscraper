@@ -31,6 +31,11 @@ float windowRandom(uint face, uvec2 cell) {
   return float(seed >> 8u) / 16777216.0;
 }
 
+/** 1 on a roof or underside, 0 on a wall. Roofs carry no windows and no wall colour. */
+float roofMask() {
+  return step(0.5, abs(vBuildingNormal.y));
+}
+
 // x = glass coverage; y = lit glass coverage. Roof/bottom return zero.
 vec2 buildingWindows() {
   bool side = abs(vBuildingNormal.x) > 0.5;
@@ -99,7 +104,11 @@ export function createWindowMaterial(building: BuildingSnapshot): MeshStandardMa
     shader.fragmentShader = WINDOW_FRAGMENT + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
-      '#include <color_fragment>\nvec2 windowCoverage = buildingWindows();\ndiffuseColor.rgb *= mix(1.0, 0.32, windowCoverage.x);',
+      '#include <color_fragment>\nvec2 windowCoverage = buildingWindows();\n'
+      + 'diffuseColor.rgb *= mix(1.0, 0.32, windowCoverage.x);\n'
+      // Seen from above the language colour was painting flat olive and navy lids over
+      // the skyline. A roof at night is tar and gravel, so it keeps only a trace.
+      + 'diffuseColor.rgb *= mix(1.0, 0.12, roofMask());',
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <emissivemap_fragment>',
