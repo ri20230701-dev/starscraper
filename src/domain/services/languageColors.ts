@@ -45,7 +45,10 @@ export const UNKNOWN_LANGUAGE_COLOR = '#6e7681';
 
 export function colorForLanguage(language: string | null): string {
   if (language === null) return UNKNOWN_LANGUAGE_COLOR;
-  return LANGUAGE_COLORS[language.trim().toLowerCase()] ?? UNKNOWN_LANGUAGE_COLOR;
+  const key = language.trim().toLowerCase();
+  // A plain index would answer for inherited keys: "constructor" returns a function and
+  // "__proto__" an object, and the fork path then calls slice on it and throws.
+  return Object.hasOwn(LANGUAGE_COLORS, key) ? LANGUAGE_COLORS[key] ?? UNKNOWN_LANGUAGE_COLOR : UNKNOWN_LANGUAGE_COLOR;
 }
 
 function clampChannel(value: number): number {
