@@ -139,19 +139,63 @@ An intermediate pass (moon 0.22 / emission 2.2 / bloom strength 0.55) was too da
 the buildings lost all mass and became scattered dots. The committed values are the
 midpoint. They are a working baseline, not final: issue #7 retunes against real data.
 
+### Frame rate — measured 2026-09-12
+
+Foreground tab (`document.hidden === false`), viewport 3440×1296, DPR 1, Apple M4 Pro.
+200 frames sampled, first 60 discarded as warmup:
+
+| Metric | Value |
+| --- | --- |
+| Mean frame time | 16.67 ms |
+| p95 | 17.60 ms |
+| Worst | 18.70 ms |
+| FPS | **60.0** |
+
+This meets the 60fps target with no frame exceeding 18.7 ms. Measured on the fixed
+100-building fixture; the real placement algorithm (issue #2) changes per-building
+cost, so this is a baseline to re-measure, not a final number.
+
+An earlier attempt collected 0 of 180 frames because the automated tab was
+backgrounded and `requestAnimationFrame` was suspended. Frame pacing itself is sound:
+`CityPresenter` clamps delta to 0.1 s and resets `previousTime` on `visibilitychange`,
+so a long hidden period cannot produce one oversized step.
+
+### PNG capture — verified 2026-09-12
+
+Verified without triggering a file download, by temporarily replacing
+`HTMLAnchorElement.prototype.click` to intercept the object URL, clicking the real
+Save PNG button, then decoding the captured data URL. This exercises the production
+path (`capturePng()` → composer render → `toDataURL`), not a reimplementation.
+
+| Check | Result |
+| --- | --- |
+| MIME prefix | `data:image/png;base64,` |
+| Dimensions | 3440 × 1296 — matches canvas backing store exactly |
+| Mean luminance | 110.86 / 255 |
+| Std deviation | 88.95 |
+| Non-black pixels (Y > 8) | 85.6 % |
+| Bright pixels (Y > 200) | 27.0 % |
+
+The image is not black and not uniform. Rendering the captured PNG back over the page
+and comparing it against the live canvas showed the same framing, including bloom
+halos — confirming the capture goes through the composer rather than a raw
+`renderer.render()`.
+
+### Known visual problem, deferred to issue #7
+
+The exposure above was judged from the **default overhead framing only**. Orbiting down
+to a low, close viewpoint still blows out: the warm window emission pools into a large
+wash and the facades disappear. The current values are acceptable at the opening
+camera angle and wrong at ground level. Issue #7 must tune against several camera
+distances, not just the initial one.
+
 ### Still not verified
 
-- **FPS was not measured.** `requestAnimationFrame` is suspended while the automated
-  tab is backgrounded (`document.hidden === true`; 0 of 180 frames collected), so no
-  30/60fps claim is made. This needs a foreground tab.
-- **PNG pixels were not decoded.** Clicking Save PNG downloads a file, which was out of
-  scope for this pass. The composer capture path is confirmed by source inspection
-  only; no nonblack-image claim is made.
-- Resize behavior, Orbit interaction, and the WebGL-failure UI are unexercised.
+- Resize behavior across aspect ratios and the WebGL-failure UI are unexercised.
 - All observations are at **DPR 1**, so no claim is made about fine texture or shading
   quality at higher pixel ratios.
 
-Remaining checks when a foreground browser is available:
+Remaining checks:
 
 1. Open the dev URL in desktop Chrome and inspect errors and `[starscraper scene]`
    logs (100 buildings, draw calls, triangle/geometry count, preserveDrawingBuffer).
