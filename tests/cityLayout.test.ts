@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Repository } from '../src/domain/model/Repository';
-import { BUILDING_RULES, WINDOW_LIT, byRecency, footprintOf, heightOf, windowLitRatioOf } from '../src/domain/services/buildingRules';
+import { BUILDING_RULES, WINDOW_LIT, byRecency, depthOf, footprintOf, heightOf, windowLitRatioOf } from '../src/domain/services/buildingRules';
 import { CITY_GRID, MAX_FOOTPRINT, isRoadCell, plotCells } from '../src/domain/services/cityGrid';
 import { layoutCity } from '../src/domain/services/cityLayout';
 import { colorForLanguage, UNKNOWN_LANGUAGE_COLOR } from '../src/domain/services/languageColors';
@@ -225,5 +225,75 @@ describe('the same data and instant always build the same city', () => {
 
   it('builds an empty city without throwing', () => {
     expect(layoutCity([], REFERENCE).buildings).toEqual([]);
+  });
+});
+
+describe('size and name stay legible across a real account', () => {
+  it('spreads footprints across the sizes repositories actually have', () => {
+    // A rule that saturates at a few hundred KB gives almost every real repository the
+    // same plot, which throws the size signal away entirely.
+    const widths = [100, 1_000, 10_000, 50_000].map(footprintOf);
+    for (let index = 1; index < widths.length; index += 1) {
+      expect(widths[index]!).toBeGreaterThan(widths[index - 1]! + 0.5);
+    }
+    expect(footprintOf(BUILDING_RULES.footprintSaturationKb)).toBeCloseTo(BUILDING_RULES.maxFootprint, 6);
+  });
+
+  it('keeps distinct depths at the widest footprint', () => {
+    // Scaling then clamping collapsed here: every name above the midpoint produced the
+    // maximum depth, so large repositories all became the same box.
+    const huge = 900_000;
+    const depths = ['frontend', 'backend', 'website', 'zeta'].map(name =>
+      depthOf(repository({ name, sizeKb: huge })));
+    expect(new Set(depths).size).toBe(depths.length);
+    for (const depth of depths) {
+      expect(depth).toBeLessThanOrEqual(BUILDING_RULES.maxFootprint);
+      expect(depth).toBeGreaterThanOrEqual(BUILDING_RULES.minFootprint);
+    }
+  });
+
+  it('keeps distinct depths at the smallest footprint too', () => {
+    const depths = ['a', 'bb', 'ccc', 'dddd'].map(name => depthOf(repository({ name, sizeKb: 0 })));
+    expect(new Set(depths).size).toBe(depths.length);
+    for (const depth of depths) expect(depth).toBeGreaterThanOrEqual(BUILDING_RULES.minFootprint);
+  });
+
+  it('does not flatten an account of large repositories into identical boxes', () => {
+    const built = layoutCity(['frontend', 'backend', 'website'].map((name, index) => repository({
+      name, sizeKb: [1_024, 10_240, 102_400][index]!, stars: 0, pushedAt: REFERENCE - DAY,
+    })), REFERENCE);
+    const shapes = built.buildings.map(building => `${building.width}x${building.depth}`);
+    expect(new Set(shapes).size).toBe(shapes.length);
+  });
+});
+
+describe('inputs the grid must refuse', () => {
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY, -1])('rejects a plot count of %s', count => {
+    // The spiral stops on an exact length match, so a fractional count would never halt.
+    expect(() => plotCells(count)).toThrow(RangeError);
+  });
+});
+
+describe('language lookup ignores inherited keys', () => {
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])('treats %s as unknown', language => {
+    expect(colorForLanguage(language)).toBe(UNKNOWN_LANGUAGE_COLOR);
+  });
+
+  it('does not throw when such a name reaches the fork path', () => {
+    const built = layoutCity([repository({ language: 'constructor', isFork: true })], REFERENCE);
+    expect(built.buildings[0]!.color).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+describe('the snapshot carries what the viewer will read', () => {
+  it('keeps each repository attached to its own building after sorting', () => {
+    const repositories = [
+      repository({ name: 'oldest', htmlUrl: 'https://example.test/oldest', stars: 3, pushedAt: REFERENCE - 400 * DAY }),
+      repository({ name: 'newest', htmlUrl: 'https://example.test/newest', stars: 9, pushedAt: REFERENCE - DAY }),
+    ];
+    const built = layoutCity(repositories, REFERENCE);
+    // Placement reorders, so the input index cannot recover the pairing later.
+    expect(built.buildings.map(building => [building.name, building.htmlUrl, building.stars]))
+      .toEqual([['newest', 'https://example.test/newest', 9], ['oldest', 'https://example.test/oldest', 3]]);
   });
 });
