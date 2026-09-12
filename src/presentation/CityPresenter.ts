@@ -209,11 +209,15 @@ export class CityPresenter {
   }
 
   private readonly onLockChange = (locked: boolean): void => {
-    // Losing the lock — Esc, or the browser dropping it — must return the page to the
-    // skyline view, or the visitor is left with a crosshair and no way to type.
-    if (!locked && this.walking) this.renderer.setMode('orbit', this.onLockChange);
+    // Settle the flag before calling back into the renderer. Returning to orbit can
+    // report the lock state again, and reading a stale flag on that second entry sent
+    // the two bouncing off each other until the stack ran out.
+    const wasWalking = this.walking;
     this.walking = locked;
     this.selected = null;
+    // Losing the lock — Esc, or the browser dropping it — must return the page to the
+    // skyline view, or the visitor is left with a crosshair and no way to type.
+    if (!locked && wasWalking) this.renderer.setMode('orbit', this.onLockChange);
     this.hud.showWalking(locked);
   };
 
