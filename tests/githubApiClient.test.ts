@@ -225,12 +225,42 @@ describe('GitHubApiClient failures and rate limits', () => {
     expect(await client.fetchRepositories('example')).toMatchObject({ retryAt: NOW + 45_000 });
   });
 
-  it('falls back from malformed Retry-After to reset epoch seconds', async () => {
+  it('falls back from malformed Retry-After to reset epoch seconds once the primary budget is spent', async () => {
     const { client } = setup(jsonResponse({}, {
       status: 429,
-      headers: { 'Retry-After': 'invalid', 'X-RateLimit-Reset': String(NOW / 1000 + 90) },
+      headers: {
+        'Retry-After': 'invalid',
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': String(NOW / 1000 + 90),
+      },
     }));
     expect(await client.fetchRepositories('example')).toMatchObject({ retryAt: NOW + 90_000 });
+  });
+
+  it('ignores the primary reset window for a secondary limit', async () => {
+    // The reset instant belongs to the hourly budget, which still has room here.
+    // Borrowing it would hold every uncached lookup for the rest of that window.
+    const { client } = setup(jsonResponse({}, {
+      status: 429,
+      headers: {
+        'Retry-After': 'invalid',
+        'X-RateLimit-Remaining': '59',
+        'X-RateLimit-Reset': String(NOW / 1000 + 3600),
+      },
+    }));
+    expect(await client.fetchRepositories('example')).toMatchObject({
+      limit: 'secondary', retryAt: NOW + 60_000,
+    });
+  });
+
+  it('does not retry early when a secondary limit reports a near reset', async () => {
+    const { client } = setup(jsonResponse({}, {
+      status: 429,
+      headers: { 'X-RateLimit-Remaining': '59', 'X-RateLimit-Reset': String(NOW / 1000 + 1) },
+    }));
+    expect(await client.fetchRepositories('example')).toMatchObject({
+      limit: 'secondary', retryAt: NOW + 60_000,
+    });
   });
 
   it('uses a conservative fallback for expired secondary reset times', async () => {
@@ -419,5 +449,102 @@ describe('GitHubApiClient request conservation', () => {
     await first;
     expect(await client.fetchRepositories('third')).toEqual(longerLimit);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('durations survive a wall-clock change', () => {
+  function clockPair() {
+    const state = { wall: NOW, monotonic: 10_000 };
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const client = new GitHubApiClient({
+      fetch, now: () => state.wall, elapsed: () => state.monotonic,
+    });
+    return { state, fetch, client };
+  }
+
+  it('expires a cached page on real elapsed time, not on the system clock', async () => {
+    const { state, fetch, client } = clockPair();
+    fetch.mockResolvedValue(jsonResponse([repository()]));
+    await client.fetchRepositories('example');
+    // The user corrects a system clock that was an hour fast; only 120 real seconds pass.
+    state.wall -= 3_600_000;
+    state.monotonic += 120_000;
+    await client.fetchRepositories('example');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a lapsed cooldown even when the system clock moves backwards', async () => {
+    const { state, fetch, client } = clockPair();
+    fetch.mockResolvedValueOnce(jsonResponse({}, {
+      status: 429, headers: { 'Retry-After': '30' },
+    }));
+    expect(await client.fetchRepositories('first')).toMatchObject({ kind: 'rate-limited' });
+    state.wall -= 600_000;
+    state.monotonic += 30_001;
+    fetch.mockResolvedValueOnce(jsonResponse([repository()]));
+    expect(await client.fetchRepositories('second')).toMatchObject({ kind: 'success' });
+  });
+
+  it('keeps blocking uncached lookups until the cooldown truly lapses', async () => {
+    const { state, fetch, client } = clockPair();
+    fetch.mockResolvedValueOnce(jsonResponse({}, {
+      status: 429, headers: { 'Retry-After': '30' },
+    }));
+    await client.fetchRepositories('first');
+    state.monotonic += 29_999;
+    expect(await client.fetchRepositories('second')).toMatchObject({ kind: 'rate-limited' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('extends the cooldown when a later limit reaches further out', async () => {
+    const { state, fetch, client } = clockPair();
+    fetch.mockResolvedValueOnce(jsonResponse({}, { status: 429, headers: { 'Retry-After': '30' } }));
+    await client.fetchRepositories('first');
+    state.monotonic += 30_001;
+    fetch.mockResolvedValueOnce(jsonResponse({}, { status: 429, headers: { 'Retry-After': '120' } }));
+    await client.fetchRepositories('second');
+    state.monotonic += 119_000;
+    expect(await client.fetchRepositories('third')).toMatchObject({ kind: 'rate-limited' });
+    state.monotonic += 2_000;
+    fetch.mockResolvedValueOnce(jsonResponse([repository()]));
+    expect(await client.fetchRepositories('fourth')).toMatchObject({ kind: 'success' });
+  });
+});
+
+describe('in-flight sharing releases on every failure path', () => {
+  it.each([
+    ['server error', () => jsonResponse({}, { status: 503 })],
+    ['malformed json', () => new Response('{ broken', { status: 200 })],
+    ['non-array payload', () => jsonResponse({ message: 'nope' })],
+  ])('shares then releases the pending request after a %s', async (_name, makeResponse) => {
+    const deferred = deferredResponse();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockReturnValueOnce(deferred.promise);
+    const client = new GitHubApiClient({ fetch, now: () => NOW });
+    const both = Promise.all([client.fetchRepositories('example'), client.fetchRepositories('EXAMPLE')]);
+    deferred.resolve(makeResponse());
+    const [first, second] = await both;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(first).toBe(second);
+    // A failure is never cached, so the next lookup must reach the network again.
+    fetch.mockResolvedValueOnce(jsonResponse([repository()]));
+    expect(await client.fetchRepositories('example')).toMatchObject({ kind: 'success' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('anchored links do not speak for this collection', () => {
+  it.each([
+    ['anchor after rel', '<https://api.github.com/x?page=2>; rel="next"; anchor="/users/other/repos"'],
+    ['anchor before rel', '<https://api.github.com/x?page=2>; anchor="/users/other/repos"; rel="next"'],
+  ])('reports no further page when the next link is anchored elsewhere (%s)', async (_name, link) => {
+    const { client } = setup(jsonResponse([repository()], { headers: { Link: link } }));
+    expect(await client.fetchRepositories('example')).toMatchObject({ hasMore: false });
+  });
+
+  it('still honours an unanchored next link alongside an anchored one', async () => {
+    const link = '<https://api.github.com/x?page=9>; rel="last"; anchor="/other",'
+      + ' <https://api.github.com/x?page=2>; rel="next"';
+    const { client } = setup(jsonResponse([repository()], { headers: { Link: link } }));
+    expect(await client.fetchRepositories('example')).toMatchObject({ hasMore: true });
   });
 });
