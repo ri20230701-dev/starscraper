@@ -223,3 +223,54 @@ the requested co-author trailer; nothing was pushed. A format-patch export is at
 `/private/tmp/starscraper-issue-1.patch`. The original checkout contains the complete
 source changes, but its branch pointer could not be updated. The preexisting
 untracked package-lock.json was left untouched and excluded from the commits.
+
+## Final lighting, issue #7 — measured 2026-09-12
+
+Measurement conditions: desktop Chrome, viewport 3440×1296, **devicePixelRatio 1**,
+`ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro)`, real data via `?u=sindresorhus`
+(100 buildings). Figures come from the production Save PNG path, intercepted before the
+download so the measured image is the one a visitor would receive.
+
+### What changed and why
+
+| Parameter | Before | After | Reason |
+| --- | --- | --- | --- |
+| Roof diffuse | full wall colour | × 0.12 | From above the language colour painted flat olive and navy lids across the skyline |
+| Bloom strength | 0.75 | 0.48 | A hundred buildings fused into one bright mass and the streets vanished |
+| Bloom radius | 0.6 | 0.42 | Same |
+| Bloom threshold | 1.0 | 1.15 | Keeps the walls out of the glow |
+
+### Measured
+
+| Metric | Opening shot |
+| --- | --- |
+| Mean luminance | 23.7 / 255 |
+| Saturated pixels (Y > 250) | 0.00 % |
+| Near-black pixels (Y < 10) | 73.5 % |
+
+The near-black share is expected: the city occupies a fraction of the frame against a
+night sky. Zero saturated pixels is the meaningful number — the earlier blowout that
+issue #4 recorded no longer appears at this framing.
+
+Visually confirmed at this setting: individual towers separate, window grids legible,
+warm and cool language colours distinguishable, roads readable as dark gaps, roofs dark.
+
+### Not verified
+
+Recorded plainly rather than implied:
+
+- **Frame rate after the change was not measured.** The automated tab is backgrounded, so
+  `requestAnimationFrame` is suspended (the same limitation as issue #1). Weakening bloom
+  should reduce cost, but an unmeasured change is not a measured improvement.
+- **Pointer lock, and therefore walking, has never run in a browser here.**
+  `requestPointerLock()` returns `WrongDocumentError: The root document of this element is
+  not valid for pointer lock` under automation. The movement, collision and look logic are
+  covered by tests against a real camera; the entry gesture is not.
+- **DPR 1.5 and mobile were not exercised**, nor a resize followed by a capture at the
+  final settings.
+- Close and low camera angles were not re-measured: synthetic pointer events do not drive
+  OrbitControls in this harness, so the earlier low-angle blowout is unconfirmed either
+  way at the new settings.
+
+These need a person with a browser. They are the first things to check after the first
+deployment.
