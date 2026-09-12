@@ -1,0 +1,37 @@
+:root { font-family: 'DM Sans', sans-serif; color: #e3e9f0; background: #050a16; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, a { -webkit-tap-highlight-color: transparent; }
+#app { position: relative; width: 100%; height: 100svh; min-height: 480px; overflow: hidden; }
+.city-viewport { position: absolute; inset: 0; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+canvas:active { cursor: grabbing; }
+.masthead, .intro, .toolbar { position: absolute; z-index: 1; pointer-events: none; }
+.masthead { inset: 0 0 auto; padding: 30px 38px; display: flex; justify-content: space-between; align-items: center; }
+.wordmark { font: 600 21px 'Space Grotesk', sans-serif; letter-spacing: -.8px; color: #eef5fa; text-decoration: none; pointer-events: auto; }
+.brand-star { color: #c4e4d6; font-size: 29px; vertical-align: -2px; margin-right: 7px; }
+.edition, .fixture-label { font-size: 10px; letter-spacing: 2px; color: #8e9aad; }
+.intro { left: 38px; top: 120px; }
+.eyebrow { font-size: 10px; letter-spacing: 2.4px; color: #bedbcc; }
+.live-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #c4e4d6; margin: 0 7px 2px 0; }
+h1 { font: 400 clamp(30px, 3.4vw, 50px)/1.1 'Space Grotesk', sans-serif; letter-spacing: -2px; margin: 20px 0 15px; }
+.intro-copy { font-size: 12px; line-height: 1.8; color: #8e9aad; }
+.toolbar { inset: auto 0 0; padding: 45px 38px 28px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; background: linear-gradient(transparent, #050a16c9); }
+.scene-status { margin: 0 0 8px; font-size: 12px; font-weight: 500; letter-spacing: .5px; }
+.controls-hint { margin: 0; font-size: 11px; color: #8e9aad; }
+.controls-hint span { padding: 0 8px; color: #4a5668; }
+.save-group { display: flex; align-items: center; gap: 24px; }
+.save-button { display: flex; align-items: center; gap: 10px; border: 1px solid #b8d6c3; border-radius: 5px; background: #c8e3d1; color: #142723; padding: 12px 17px; font: 600 12px 'DM Sans', sans-serif; cursor: pointer; pointer-events: auto; }
+.save-button:hover { background: #e0f2e4; }
+.save-button:disabled { opacity: .45; cursor: default; }
+.unavailable .scene-status { color: #ffcc9f; max-width: 34rem; line-height: 1.7; }
+:focus-visible { outline: 2px solid #c4e4d6; outline-offset: 6px; }
+@media (max-width: 640px) {
+  .masthead { padding: 22px; }
+  .edition { font-size: 8px; letter-spacing: 1px; }
+  .intro { top: 100px; left: 22px; }
+  .intro-copy { max-width: 220px; }
+  .toolbar { padding: 40px 22px 22px; }
+  .fixture-label, .controls-hint { display: none; }
+  .scene-status { font-size: 10px; }
+}
