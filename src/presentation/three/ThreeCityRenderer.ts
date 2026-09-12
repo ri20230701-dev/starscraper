@@ -102,19 +102,36 @@ export class ThreeCityRenderer implements CityRenderer {
 
   setMode(mode: CityMode, onLockChange: (locked: boolean) => void): void {
     if (!this.camera || !this.renderer || !this.framing || this.mode === mode) return;
-    this.mode = mode;
     if (mode === 'orbit') {
-      this.walk?.dispose();
-      this.walk = null;
+      this.toOrbit();
+      return;
+    }
+    this.mode = 'walk';
+    const walk = new WalkControls(this.camera, this.renderer.domElement, this.city,
+      { x: this.framing.target[0], z: this.framing.target[2] }, onLockChange);
+    this.walk = walk;
+    walk.attach();
+    this.controls?.setEnabled(false);
+    void walk.enter().then(granted => {
+      // A refusal has to put everything back, or the renderer sits in walk mode with no
+      // lock: the same-mode guard then makes the button do nothing for the rest of the
+      // session, and there is no lock to release with Esc either.
+      if (granted || this.walk !== walk) return;
+      this.toOrbit();
+      onLockChange(false);
+    });
+  }
+
+  private toOrbit(): void {
+    this.mode = 'orbit';
+    this.walk?.dispose();
+    this.walk = null;
+    if (this.camera && this.framing) {
       this.camera.position.set(...this.framing.position);
       this.camera.rotation.set(0, 0, 0);
       this.controls?.reset(this.framing);
-      return;
     }
-    this.walk = new WalkControls(this.camera, this.renderer.domElement, this.city,
-      { x: this.framing.target[0], z: this.framing.target[2] }, onLockChange);
-    this.walk.attach();
-    this.walk.enter();
+    this.controls?.setEnabled(true);
   }
 
   /**
@@ -123,6 +140,10 @@ export class ThreeCityRenderer implements CityRenderer {
    */
   pickAtCentre(): BuildingSnapshot | null {
     if (!this.camera || !this.buildings) return null;
+    // Walking moves the camera after the last render, so its world matrix is a frame
+    // behind. Without this the panel describes whatever was under the crosshair before
+    // the visitor turned.
+    this.camera.updateMatrixWorld();
     this.raycaster.setFromCamera(CENTRE, this.camera);
     const [hit] = this.raycaster.intersectObject(this.buildings.group, true);
     return hit ? this.buildings.snapshotFor(hit.object) : null;
