@@ -11,6 +11,8 @@ const LOOK_SENSITIVITY = 0.0022;
 /** Stop just short of straight up and straight down, where the view would flip. */
 const MAX_PITCH = Math.PI / 2 - 0.05;
 
+const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
+
 const MOVEMENT_KEYS = new Map<string, 'forward' | 'back' | 'left' | 'right'>([
   ['KeyW', 'forward'], ['ArrowUp', 'forward'],
   ['KeyS', 'back'], ['ArrowDown', 'back'],
@@ -27,11 +29,12 @@ const MOVEMENT_KEYS = new Map<string, 'forward' | 'back' | 'left' | 'right'>([
  */
 export class WalkControls {
   private readonly collision: CityCollision;
-  private readonly held = new Set<'forward' | 'back' | 'left' | 'right'>();
+  /** Physical keys, not directions: W and ArrowUp are two ways to hold one heading. */
+  private readonly held = new Set<string>();
   private position: Point;
   private yaw = 0;
   private pitch = -0.05;
-  private sprinting = false;
+  private readonly sprint = new Set<string>();
   private locked = false;
 
   constructor(
@@ -43,19 +46,30 @@ export class WalkControls {
   ) {
     this.collision = new CityCollision(city, PLAYER_RADIUS);
     this.position = this.collision.spawn(centre);
-    // Face the middle of town so the first step goes somewhere interesting.
-    this.yaw = Math.atan2(centre.x - this.position.x, centre.z - this.position.z);
+    // Face the middle of town so the first step goes somewhere interesting. A Three
+    // camera looks along its local -Z, so the heading is the negated offset.
+    this.yaw = Math.atan2(this.position.x - centre.x, this.position.z - centre.z);
     this.apply();
   }
 
-  enter(): void {
-    // Pointer lock is refused outside a user gesture and in some embedded contexts.
-    // A rejection is the browser's answer, not a crash, so it must not escape here.
+  /**
+   * Ask for pointer lock, reporting whether it was granted.
+   *
+   * The browser refuses outside a user gesture and in some embedded contexts. A refusal
+   * used to be swallowed while the renderer had already switched to walk mode, which
+   * left the two disagreeing and made the button inert until the page was reloaded.
+   */
+  async enter(): Promise<boolean> {
+    const document = this.canvas.ownerDocument;
+    const failed = new Promise<boolean>(resolve => {
+      document.addEventListener('pointerlockerror', () => resolve(false), { once: true });
+    });
     try {
-      void Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
+      await Promise.race([Promise.resolve(this.canvas.requestPointerLock()), failed]);
     } catch {
-      // Older signatures throw synchronously instead of rejecting.
+      return false;
     }
+    return document.pointerLockElement === this.canvas;
   }
 
   exit(): void {
@@ -82,22 +96,26 @@ export class WalkControls {
 
   update(deltaSeconds: number): void {
     if (!this.locked || this.held.size === 0) return;
-    const speed = (this.sprinting ? RUN_SPEED : WALK_SPEED) * Math.min(deltaSeconds, 0.1);
+    const speed = (this.sprint.size > 0 ? RUN_SPEED : WALK_SPEED) * Math.min(deltaSeconds, 0.1);
+    const directions = new Set([...this.held].map(code => MOVEMENT_KEYS.get(code)));
     let forward = 0;
     let strafe = 0;
-    if (this.held.has('forward')) forward += 1;
-    if (this.held.has('back')) forward -= 1;
-    if (this.held.has('right')) strafe += 1;
-    if (this.held.has('left')) strafe -= 1;
+    if (directions.has('forward')) forward += 1;
+    if (directions.has('back')) forward -= 1;
+    if (directions.has('right')) strafe += 1;
+    if (directions.has('left')) strafe -= 1;
     if (forward === 0 && strafe === 0) return;
     // Diagonals must not be faster than walking straight.
     const scale = speed / Math.hypot(forward, strafe);
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
+    // Forward is the camera's local -Z and right is its local +X, both rotated by yaw.
+    // Using +Z here made W walk backwards, and the test agreed because it was written
+    // from the same mistaken convention.
     this.position = this.collision.move(
       this.position,
-      (forward * sin + strafe * cos) * scale,
-      (forward * cos - strafe * sin) * scale,
+      (strafe * cos - forward * sin) * scale,
+      (-forward * cos - strafe * sin) * scale,
     );
     this.apply();
   }
@@ -126,23 +144,21 @@ export class WalkControls {
 
   private readonly releaseKeys = (): void => {
     this.held.clear();
-    this.sprinting = false;
+    this.sprint.clear();
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (!this.locked) return;
-    const movement = MOVEMENT_KEYS.get(event.code);
-    if (movement) {
-      this.held.add(movement);
+    if (MOVEMENT_KEYS.has(event.code)) {
+      this.held.add(event.code);
       event.preventDefault();
     }
-    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') this.sprinting = true;
+    if (SPRINT_KEYS.has(event.code)) this.sprint.add(event.code);
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
-    const movement = MOVEMENT_KEYS.get(event.code);
-    if (movement) this.held.delete(movement);
-    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') this.sprinting = false;
+    this.held.delete(event.code);
+    this.sprint.delete(event.code);
   };
 
   private readonly onMouseMove = (event: MouseEvent): void => {
