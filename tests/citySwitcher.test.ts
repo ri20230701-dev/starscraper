@@ -117,11 +117,36 @@ describe('every failure still shows a city', () => {
     expect(view?.city.buildings).toEqual([]);
   });
 
-  it('names a missing user without offering the sample as theirs', async () => {
+  it('names a missing user and admits the city on screen is the sample', async () => {
     const subject = switcher({ fetchRepositories: async () => ({ kind: 'user-not-found' }) });
     const view = await subject.resolve('nobody');
     expect(view?.message.text).toContain('nobody');
-    expect(view?.message.usingSample).toBe(false);
+    // The drawn city is the bundled sample, so the flag that drives the "live from
+    // GitHub" label has to say so. Claiming a live account over bundled data is worse
+    // than the miss itself.
+    expect(view?.city.buildings.length).toBe(SAMPLE_REPOSITORY_PAGE.repositories.length);
+    expect(view?.message.usingSample).toBe(true);
+  });
+
+  it('never claims live data while drawing the sample', async () => {
+    // One guard for every branch: whatever the outcome, the flag and the city agree.
+    const outcomes: RepositoryResult[] = [
+      { kind: 'user-not-found' },
+      { kind: 'network-error', retryable: true },
+      { kind: 'service-error', retryable: true },
+      { kind: 'access-denied', retryable: false },
+      { kind: 'invalid-response', retryable: false },
+      { kind: 'rate-limited', limit: 'primary', retryAt: NOW + 60_000, retryable: true },
+      { kind: 'no-repositories', hasMore: false },
+      success(['only-one']),
+    ];
+    const sampleJson = JSON.stringify(
+      new BuildCity().execute(SAMPLE_REPOSITORY_PAGE.repositories, SAMPLE_REFERENCE_TIME));
+    for (const outcome of outcomes) {
+      const view = await switcher({ fetchRepositories: async () => outcome }).resolve('someone');
+      const drawnSample = JSON.stringify(view?.city) === sampleJson;
+      expect(view?.message.usingSample, `${outcome.kind} mislabels its data`).toBe(drawnSample);
+    }
   });
 });
 

@@ -1,6 +1,9 @@
+import { PerspectiveCamera, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { BuildingSnapshot, CitySnapshot } from '../src/application/dto/CitySnapshot';
 import { frameCity } from '../src/presentation/three/cityFraming';
+
+const FOV = 43;
 
 function building(overrides: Partial<BuildingSnapshot> = {}): BuildingSnapshot {
   return {
@@ -20,22 +23,84 @@ const block = city(Array.from({ length: 100 }, (_unused, index) => building({
   x: (index % 10) * 24 + 48, z: Math.floor(index / 10) * 24 + 48, height: 12 + index,
 })));
 
-describe('the opening shot fits whatever city it is given', () => {
+/** Every corner of every building, in world space. */
+function corners(snapshot: CitySnapshot): Vector3[] {
+  return snapshot.buildings.flatMap(item => [-1, 1].flatMap(sx => [0, 1].flatMap(sy => [-1, 1].map(sz =>
+    new Vector3(item.x + (sx * item.width) / 2, sy * item.height, item.z + (sz * item.depth) / 2)))));
+}
+
+/**
+ * Project the city with a real camera placed exactly where the framing says, then report
+ * the worst normalised device coordinate. Anything past 1 is off the edge of the screen.
+ */
+function worstProjection(snapshot: CitySnapshot, aspect: number) {
+  const framing = frameCity(snapshot, FOV, aspect);
+  const camera = new PerspectiveCamera(FOV, aspect, 0.5, framing.far);
+  camera.position.set(...framing.position);
+  camera.lookAt(new Vector3(...framing.target));
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+  let worstX = 0;
+  let worstY = 0;
+  let furthest = 0;
+  for (const corner of corners(snapshot)) {
+    const ndc = corner.clone().project(camera);
+    worstX = Math.max(worstX, Math.abs(ndc.x));
+    worstY = Math.max(worstY, Math.abs(ndc.y));
+    furthest = Math.max(furthest, camera.position.distanceTo(corner));
+  }
+  return { framing, worstX, worstY, furthest };
+}
+
+describe('the opening shot actually contains the city', () => {
   it.each([
-    ['no buildings at all', city([]), 1.78],
     ['a single low building', city([building()]), 1.78],
     ['one 200k-star tower on a small plot', city([building({ height: 117.66, width: 7, depth: 7 })]), 1.78],
     ['a portrait phone', city([building({ height: 117.66 })]), 0.42],
-    ['an ultrawide display', city([building({ height: 117.66 })]), 5],
+    ['a very narrow window', city([building({ height: 117.66 })]), 0.1],
+    ['an ultrawide display', block, 5],
     ['a hundred buildings off the origin', block, 2.65],
+    ['a hundred buildings on a phone', block, 0.42],
+  ])('keeps every corner on screen: %s', (_name, snapshot, aspect) => {
+    const { worstX, worstY } = worstProjection(snapshot, aspect);
+    // Asserting the projection is the point: arithmetic that merely looked sufficient
+    // still cropped the roof of a tall tower by twelve percent of the screen.
+    expect(worstX).toBeLessThanOrEqual(1);
+    expect(worstY).toBeLessThanOrEqual(1);
+  });
+
+  it('keeps the whole city inside the far plane, even fully zoomed out', () => {
+    const { framing, furthest } = worstProjection(block, 0.42);
+    // The furthest a visitor may pull back, plus the depth of the city behind the target.
+    const radius = furthest;
+    expect(framing.far).toBeGreaterThan(framing.maxDistance + radius * 0.1);
+    expect(framing.far).toBeGreaterThan(furthest);
+  });
+
+  it('leaves the city visible through the fog at the opening distance', () => {
+    const { framing, furthest } = worstProjection(block, 1.78);
+    // FogExp2 keeps exp(-(density * depth)^2) of the original colour. A density fixed for
+    // a small scene left 0.002% of it at this distance, which is indistinguishable from
+    // the background.
+    const survival = Math.exp(-((framing.fogDensity * furthest) ** 2));
+    expect(survival).toBeGreaterThan(0.15);
+  });
+});
+
+describe('framing stays well formed', () => {
+  it.each([
+    ['no buildings at all', city([]), 1.78],
+    ['a single low building', city([building()]), 1.78],
+    ['a hundred buildings', block, 2.65],
   ])('%s', (_name, snapshot, aspect) => {
-    const framing = frameCity(snapshot, 43, aspect);
-    const numbers = [...framing.position, ...framing.target, framing.minDistance, framing.maxDistance];
+    const framing = frameCity(snapshot, FOV, aspect);
+    const numbers = [...framing.position, ...framing.target, framing.minDistance, framing.maxDistance,
+      framing.far, framing.fogDensity];
     expect(numbers.every(Number.isFinite)).toBe(true);
     expect(framing.minDistance).toBeLessThan(framing.maxDistance);
 
-    // The camera must start inside its own orbit limits. Outside them the controls snap
-    // the view on the first frame, which reads as the page glitching on load.
+    // The camera must start inside its own orbit limits, or the controls snap the view on
+    // the first frame and the page looks like it glitched on load.
     const distance = Math.hypot(
       framing.position[0] - framing.target[0],
       framing.position[1] - framing.target[1],
@@ -46,20 +111,20 @@ describe('the opening shot fits whatever city it is given', () => {
   });
 
   it('looks at the city rather than the world origin', () => {
-    // The grid starts inside a block, so a city never straddles the origin evenly.
-    const framing = frameCity(block, 43, 1.78);
+    const framing = frameCity(block, FOV, 1.78);
     expect(framing.target[0]).toBeGreaterThan(100);
     expect(framing.target[2]).toBeGreaterThan(100);
   });
 
   it('pulls back further for a larger city', () => {
-    const near = frameCity(city([building()]), 43, 1.78);
-    const far = frameCity(block, 43, 1.78);
-    const spanOf = (framing: ReturnType<typeof frameCity>) => Math.hypot(
-      framing.position[0] - framing.target[0],
-      framing.position[1] - framing.target[1],
-      framing.position[2] - framing.target[2],
-    );
-    expect(spanOf(far)).toBeGreaterThan(spanOf(near) * 2);
+    const spanOf = (snapshot: CitySnapshot) => {
+      const framing = frameCity(snapshot, FOV, 1.78);
+      return Math.hypot(
+        framing.position[0] - framing.target[0],
+        framing.position[1] - framing.target[1],
+        framing.position[2] - framing.target[2],
+      );
+    };
+    expect(spanOf(block)).toBeGreaterThan(spanOf(city([building()])) * 2);
   });
 });
