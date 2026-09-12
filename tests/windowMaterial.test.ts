@@ -22,13 +22,19 @@ function compile(material: WindowMaterial): TestShader {
   return shader;
 }
 
+/** The shader reads geometry only; this metadata exists to satisfy the snapshot shape. */
+const metadata = {
+  htmlUrl: 'https://github.com/example/repo',
+  description: null, language: null, stars: 0, pushedAt: null, isFork: false,
+} as const;
+
 const narrowBuilding: BuildingSnapshot = {
   id: 17, x: 0, z: 0, width: 9, depth: 17, height: 76,
-  color: '#123456', windowLitRatio: 0.37,
+  color: '#123456', windowLitRatio: 0.37, name: 'narrow', ...metadata,
 };
 const wideBuilding: BuildingSnapshot = {
   id: 35, x: 10, z: 20, width: 18, depth: 8, height: 12,
-  color: '#654321', windowLitRatio: 0.81,
+  color: '#654321', windowLitRatio: 0.81, name: 'wide', ...metadata,
 };
 
 function expectBuildingUniforms(

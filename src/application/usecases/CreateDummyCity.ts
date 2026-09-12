@@ -15,6 +15,15 @@ export class CreateDummyCity {
         height: 12 + ((id * 23 + 17) % 65),
         color: WALL_COLORS[id % WALL_COLORS.length] ?? '#384c64',
         windowLitRatio: 0.15 + ((id * 13) % 80) / 100,
+        // Placeholder metadata: this fixture predates real repository data and exists
+        // only to keep the render path alive until issue #4 wires the gateway in.
+        name: `sample-${String(id).padStart(3, '0')}`,
+        htmlUrl: 'https://github.com/',
+        description: null,
+        language: null,
+        stars: 0,
+        pushedAt: null,
+        isFork: false,
       })),
     };
   }
