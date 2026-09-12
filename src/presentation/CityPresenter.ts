@@ -1,4 +1,5 @@
-import type { CityRenderer } from './ports/CityRenderer';
+import type { BuildingSnapshot } from '../application/dto/CitySnapshot';
+import type { CityMode, CityRenderer } from './ports/CityRenderer';
 import type { CityHud } from './hud/CityHud';
 import type { CitySwitcher, CityView } from './CitySwitcher';
 import { isValidUsername, searchForUsername, usernameFromSearch } from './cityAddress';
@@ -18,6 +19,8 @@ export class CityPresenter {
    * form while the newest one was still in flight.
    */
   private request = 0;
+  private walking = false;
+  private selected: BuildingSnapshot | null = null;
 
   constructor(
     private readonly switcher: CitySwitcher,
@@ -29,7 +32,12 @@ export class CityPresenter {
 
   start(): void {
     if (this.running) return;
-    this.viewport = this.hud.mount({ onSave: this.savePng, onSubmit: this.onSubmit });
+    this.viewport = this.hud.mount({
+      onSave: this.savePng,
+      onSubmit: this.onSubmit,
+      onWalk: this.onWalk,
+      onOpenSelection: this.onOpenSelection,
+    });
     try {
       this.show(this.switcher.sampleView());
       this.hud.showReady();
@@ -44,6 +52,7 @@ export class CityPresenter {
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('pageshow', this.onPageShow);
     window.addEventListener('popstate', this.onPopState);
+    document.addEventListener('keydown', this.onKeyDown);
     // A shared link should open that person's city, not the sample.
     const requested = usernameFromSearch(window.location.search);
     if (requested !== null) void this.lookup(requested, 'replace');
@@ -55,6 +64,11 @@ export class CityPresenter {
    */
   private show(view: CityView): void {
     if (!this.viewport) return;
+    // A new city means a new set of streets; any walk through the old one is over.
+    if (this.walking) this.renderer.setMode('orbit', this.onLockChange);
+    this.walking = false;
+    this.selected = null;
+    this.hud.showWalking(false);
     try {
       this.renderer.mount(this.viewport, view.city, this.onFailure);
       this.renderer.renderFinal();
@@ -145,6 +159,7 @@ export class CityPresenter {
     const elapsed = this.previousTime === null ? 0 : timestamp - this.previousTime;
     this.previousTime = timestamp;
     this.renderer.update(Math.min(elapsed / 1000, 0.1));
+    if (this.walking) this.refreshSelection();
     this.renderer.renderFinal();
     if (import.meta.env.DEV && elapsed > 0 && !document.hidden) this.recordFrame(elapsed);
     this.frameId = requestAnimationFrame(this.tick);
@@ -174,6 +189,46 @@ export class CityPresenter {
   private readonly onFailure = (): void => {
     this.stop();
     this.hud.showUnavailable();
+  };
+
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (!this.walking) return;
+    if (event.code === 'Enter' || event.code === 'NumpadEnter') {
+      event.preventDefault();
+      this.onOpenSelection();
+    }
+  };
+
+  private readonly onWalk = (): void => {
+    this.setMode(this.walking ? 'orbit' : 'walk');
+  };
+
+  private setMode(mode: CityMode): void {
+    this.renderer.setMode(mode, this.onLockChange);
+    if (mode === 'orbit') this.onLockChange(false);
+  }
+
+  private readonly onLockChange = (locked: boolean): void => {
+    // Losing the lock — Esc, or the browser dropping it — must return the page to the
+    // skyline view, or the visitor is left with a crosshair and no way to type.
+    if (!locked && this.walking) this.renderer.setMode('orbit', this.onLockChange);
+    this.walking = locked;
+    this.selected = null;
+    this.hud.showWalking(locked);
+  };
+
+  private refreshSelection(): void {
+    const building = this.renderer.pickAtCentre();
+    if (building?.name === this.selected?.name) return;
+    this.selected = building;
+    this.hud.showSelection(building);
+  }
+
+  private readonly onOpenSelection = (): void => {
+    const url = this.selected?.htmlUrl;
+    if (!url) return;
+    // noopener: the repository page must not get a handle on this window.
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   private readonly savePng = (): void => {
@@ -210,6 +265,7 @@ export class CityPresenter {
     window.removeEventListener('pagehide', this.onPageHide);
     window.removeEventListener('pageshow', this.onPageShow);
     window.removeEventListener('popstate', this.onPopState);
+    document.removeEventListener('keydown', this.onKeyDown);
     this.switcher.cancel();
     this.viewport = null;
     this.renderer.dispose();

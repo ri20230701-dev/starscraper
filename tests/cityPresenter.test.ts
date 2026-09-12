@@ -38,6 +38,8 @@ class StubRenderer implements CityRenderer {
   update(): void {}
   renderFinal(): void {}
   capturePng(): string { return 'data:image/png;base64,'; }
+  setMode(): void {}
+  pickAtCentre(): null { return null; }
   dispose(): void {}
 
   get names(): string[] {

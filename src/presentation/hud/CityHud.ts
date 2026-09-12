@@ -1,9 +1,24 @@
 import './city.css';
+import type { BuildingSnapshot } from '../../application/dto/CitySnapshot';
 import type { CityMessage } from './cityMessages';
+
+const DAY_MS = 86_400_000;
+
+/** Rough, human phrasing; the exact date is not what a passer-by wants to read. */
+function describeAge(pushedAt: number, now = Date.now()): string {
+  const days = Math.max(0, Math.round((now - pushedAt) / DAY_MS));
+  if (days <= 1) return 'today';
+  if (days < 31) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  if (months < 24) return `${months} months ago`;
+  return `${Math.round(days / 365)} years ago`;
+}
 
 export interface CityHudHandlers {
   readonly onSave: () => void;
   readonly onSubmit: (username: string) => void;
+  readonly onWalk: () => void;
+  readonly onOpenSelection: () => void;
 }
 
 export class CityHud {
@@ -11,6 +26,7 @@ export class CityHud {
   private saveButton: HTMLButtonElement | null = null;
   private form: HTMLFormElement | null = null;
   private input: HTMLInputElement | null = null;
+  private walkButton: HTMLButtonElement | null = null;
   private handlers: CityHudHandlers | null = null;
 
   mount(handlers: CityHudHandlers): HTMLElement {
@@ -21,6 +37,8 @@ export class CityHud {
     root.classList.remove('unavailable');
     root.innerHTML = `
       <div class="city-viewport"></div>
+      <div class="crosshair" data-testid="crosshair" hidden aria-hidden="true"></div>
+      <aside class="selection" data-testid="selection" hidden></aside>
       <header class="masthead">
         <a class="wordmark" href="./" aria-label="starscraper home"><span class="brand-star">✳</span> starscraper</a>
         <span class="edition">RENDER STUDY / 001</span>
@@ -42,6 +60,7 @@ export class CityHud {
         <div><p class="scene-status" data-testid="scene-status" role="status">Starting the city…</p>
         <p class="controls-hint">Drag to orbit <span>·</span> Scroll to explore <span>·</span> Right-drag to pan</p></div>
         <div class="save-group"><span class="fixture-label">FIXED SAMPLE CITY</span>
+        <button class="walk-button" data-testid="walk-toggle" type="button" disabled>Walk the streets</button>
         <button class="save-button" data-testid="save-png" type="button" disabled>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"/></svg>
           Save PNG
@@ -55,11 +74,55 @@ export class CityHud {
     this.form = root.querySelector<HTMLFormElement>('[data-testid="lookup-form"]');
     this.input = root.querySelector<HTMLInputElement>('[data-testid="username-input"]');
     this.form?.addEventListener('submit', this.submit);
+    this.walkButton = root.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]');
+    this.walkButton?.addEventListener('click', this.walk);
     return viewport;
   }
 
   showReady(): void {
     if (this.saveButton) this.saveButton.disabled = false;
+    if (this.walkButton) this.walkButton.disabled = false;
+  }
+
+  /** Pointer lock hides the cursor, so the crosshair is the only way to aim. */
+  showWalking(walking: boolean): void {
+    const crosshair = this.root?.querySelector<HTMLElement>('[data-testid="crosshair"]');
+    if (crosshair) crosshair.hidden = !walking;
+    if (this.walkButton) this.walkButton.textContent = walking ? 'Back to the skyline' : 'Walk the streets';
+    // Typing and saving belong to the skyline view; both need the cursor back.
+    if (this.input) this.input.disabled = walking;
+    if (this.saveButton) this.saveButton.disabled = walking;
+    if (!walking) this.showSelection(null);
+    this.status(walking
+      ? 'WASD to move · Shift to run · Enter opens the repository · Esc to step back out'
+      : 'Drag to orbit · Scroll to explore · Right-drag to pan');
+  }
+
+  /** Describe whatever the crosshair is resting on, or clear the panel. */
+  showSelection(building: BuildingSnapshot | null): void {
+    const panel = this.root?.querySelector<HTMLElement>('[data-testid="selection"]');
+    if (!panel) return;
+    if (!building) {
+      panel.hidden = true;
+      panel.replaceChildren();
+      return;
+    }
+    panel.hidden = false;
+    // textContent throughout: repository names and descriptions are other people's input.
+    const name = panel.ownerDocument.createElement('h2');
+    name.textContent = building.name;
+    const facts = panel.ownerDocument.createElement('p');
+    facts.className = 'selection-facts';
+    facts.textContent = [
+      `${building.stars} ★`,
+      building.language ?? 'Unknown language',
+      building.pushedAt === null ? 'never pushed' : `pushed ${describeAge(building.pushedAt)}`,
+      building.isFork ? 'fork' : null,
+    ].filter(Boolean).join(' · ');
+    const description = panel.ownerDocument.createElement('p');
+    description.className = 'selection-description';
+    description.textContent = building.description ?? '';
+    panel.replaceChildren(name, facts, description);
   }
 
   /** Reflect the city now on screen: its message, and whose name the field should hold. */
@@ -126,6 +189,8 @@ export class CityHud {
 
   private readonly save = (): void => { this.handlers?.onSave(); };
 
+  private readonly walk = (): void => { this.handlers?.onWalk(); };
+
   private readonly submit = (event: Event): void => {
     event.preventDefault();
     this.handlers?.onSubmit(this.input?.value.trim() ?? '');
@@ -139,8 +204,10 @@ export class CityHud {
   dispose(): void {
     this.saveButton?.removeEventListener('click', this.save);
     this.form?.removeEventListener('submit', this.submit);
+    this.walkButton?.removeEventListener('click', this.walk);
     this.saveButton = null;
     this.form = null;
+    this.walkButton = null;
     this.input = null;
     this.handlers = null;
     this.root?.replaceChildren();
