@@ -4,11 +4,43 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#050a16" />
-    <meta name="description" content="A hundred buildings, a thousand little lights. Explore a procedural night city." />
+    <meta name="description" content="Every GitHub repository becomes a building. Stars raise it, and the last push keeps its windows lit." />
     <title>starscraper — After dark</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+
+    <!--
+      A single static card. Rendering one per username would need a server, and the
+      whole point of this build is that there isn't one.
+
+      The image and URL are absolute: the crawlers behind link previews do not resolve
+      a relative og:image, and a share card that fails to render defeats the point of
+      a page meant to be passed around.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ri20230701-dev.github.io/starscraper/" />
+    <meta property="og:title" content="starscraper — a city made from code" />
+    <meta property="og:description" content="Every GitHub repository becomes a building. Stars raise it, and the last push keeps its windows lit." />
+    <meta property="og:image" content="https://ri20230701-dev.github.io/starscraper/og.jpg" />
+    <meta property="og:image:width" content="1568" />
+    <meta property="og:image:height" content="591" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="starscraper — a city made from code" />
+    <meta name="twitter:description" content="Every GitHub repository becomes a building. Stars raise it, and the last push keeps its windows lit." />
+    <meta name="twitter:image" content="https://ri20230701-dev.github.io/starscraper/og.jpg" />
   </head>
   <body>
-    <main id="app"></main>
+    <main id="app">
+      <!--
+        Static, because the view that used to carry this notice is itself built by
+        JavaScript: with scripting off the message was never written and the page
+        was simply blank.
+      -->
+      <noscript>
+        <p style="color:#eef5fa;font:400 15px/1.7 system-ui,sans-serif;padding:2rem;max-width:40ch">
+          starscraper draws its city with WebGL, so it needs JavaScript enabled.
+        </p>
+      </noscript>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

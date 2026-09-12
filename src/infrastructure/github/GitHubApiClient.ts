@@ -6,6 +6,12 @@ import { hasNextLink } from './linkHeader';
 // One minute absorbs repeat submissions while keeping pushed/star data reasonably fresh.
 const SUCCESS_CACHE_TTL_MS = 60_000;
 const RATE_LIMIT_FALLBACK_MS = 60_000;
+/**
+ * A stalled connection never settles its promise, which would leave the form disabled
+ * with no way to retry and no way to fall back to the sample. Ten seconds is long enough
+ * for a slow mobile connection and short enough that a hang stays recoverable.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
 
 interface GitHubApiClientOptions {
   readonly fetch?: typeof fetch;
@@ -145,11 +151,19 @@ export class GitHubApiClient implements RepositoryGateway {
   }
 
   private async load(username: string): Promise<RepositoryResult> {
+    // The signal covers the body as well as the headers, so a response that stops
+    // arriving halfway is abandoned rather than waited on forever.
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
       response = await this.fetch(
         `https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=100&sort=pushed&type=owner`,
-        { method: 'GET', headers: { Accept: 'application/vnd.github+json' }, credentials: 'omit' },
+        {
+          method: 'GET',
+          headers: { Accept: 'application/vnd.github+json' },
+          credentials: 'omit',
+          signal: timeout,
+        },
       );
     } catch {
       return { kind: 'network-error', retryable: true };

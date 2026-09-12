@@ -68,7 +68,7 @@ export class CityHud {
           Save PNG
         </button></div>
       </footer>
-      <noscript>This city needs JavaScript and WebGL 2.</noscript>`;
+`;
     const viewport = root.querySelector<HTMLElement>('.city-viewport');
     if (!viewport) throw new Error('Missing city viewport.');
     this.saveButton = root.querySelector<HTMLButtonElement>('[data-testid="save-png"]');
@@ -183,7 +183,9 @@ export class CityHud {
   showUnavailable(): void {
     this.status('The city needs WebGL 2. Enable hardware acceleration, then reload.');
     this.root?.classList.add('unavailable');
+    // Both controls act on a scene that no longer exists, so neither may stay offered.
     if (this.saveButton) this.saveButton.disabled = true;
+    if (this.walkButton) this.walkButton.disabled = true;
   }
 
   downloadPng(dataUrl: string): void {
