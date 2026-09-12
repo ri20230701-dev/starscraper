@@ -9,13 +9,23 @@ const RATE_LIMIT_FALLBACK_MS = 60_000;
 
 interface GitHubApiClientOptions {
   readonly fetch?: typeof fetch;
+  /** Wall clock, used only for the outward-facing retryAt instant. */
   readonly now?: () => number;
+  /** Monotonic source, used for every duration so a clock change cannot distort them. */
+  readonly elapsed?: () => number;
   readonly cacheTtlMs?: number;
 }
 
 interface CachedPage {
   readonly result: RepositoryPage;
+  /** On the monotonic timeline, not the wall clock. */
   readonly expiresAt: number;
+}
+
+interface Cooldown {
+  readonly result: RateLimitError;
+  /** On the monotonic timeline, not the wall clock. */
+  readonly until: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,10 +74,16 @@ function retryAtFrom(headers: Headers, now: number, limit: RateLimitError['limit
     const time = /^\d+$/.test(retryAfter) ? now + Number(retryAfter) * 1000 : Date.parse(retryAfter);
     if (Number.isFinite(time) && time >= now) return time;
   }
-  const reset = headers.get('X-RateLimit-Reset')?.trim();
-  if (reset && /^\d+$/.test(reset)) {
-    const time = Number(reset) * 1000;
-    if (Number.isFinite(time) && (time > now || limit === 'primary')) return Math.max(now, time);
+  // X-RateLimit-Reset describes the primary window only. Reading it for a secondary
+  // limit both under- and overshoots: a reset one second away retries immediately,
+  // while one an hour away locks out every uncached lookup. GitHub's guidance for a
+  // secondary limit without Retry-After is to wait at least a minute.
+  if (limit === 'primary') {
+    const reset = headers.get('X-RateLimit-Reset')?.trim();
+    if (reset && /^\d+$/.test(reset)) {
+      const time = Number(reset) * 1000;
+      if (Number.isFinite(time)) return Math.max(now, time);
+    }
   }
   return now + RATE_LIMIT_FALLBACK_MS;
 }
@@ -75,14 +91,20 @@ function retryAtFrom(headers: Headers, now: number, limit: RateLimitError['limit
 export class GitHubApiClient implements RepositoryGateway {
   private readonly fetch: typeof fetch;
   private readonly now: () => number;
+  private readonly elapsed: () => number;
   private readonly cacheTtlMs: number;
   private readonly pending = new Map<string, Promise<RepositoryResult>>();
   private readonly cache = new Map<string, CachedPage>();
-  private cooldown: RateLimitError | null = null;
+  private cooldown: Cooldown | null = null;
 
   constructor(options: GitHubApiClientOptions = {}) {
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.now = options.now ?? Date.now;
+    // A caller that injects a wall clock drives it deterministically, so it doubles as
+    // the duration source. Left to itself the client uses a clock that cannot rewind:
+    // a user correcting their system time must not extend a cache entry or revive a
+    // cooldown that has already lapsed.
+    this.elapsed = options.elapsed ?? options.now ?? (() => performance.now());
     this.cacheTtlMs = options.cacheTtlMs ?? SUCCESS_CACHE_TTL_MS;
     if (!Number.isFinite(this.cacheTtlMs) || this.cacheTtlMs < 0) {
       throw new RangeError('cacheTtlMs must be a finite nonnegative duration');
@@ -91,24 +113,29 @@ export class GitHubApiClient implements RepositoryGateway {
 
   fetchRepositories(username: string): Promise<RepositoryResult> {
     const key = username.trim().toLowerCase();
-    const now = this.now();
+    const elapsed = this.elapsed();
     // Prune all expired entries so one-off usernames do not accumulate forever.
     for (const [name, entry] of this.cache) {
-      if (entry.expiresAt <= now) this.cache.delete(name);
+      if (entry.expiresAt <= elapsed) this.cache.delete(name);
     }
     const cached = this.cache.get(key);
     if (cached) return Promise.resolve(cached.result);
     const pending = this.pending.get(key);
     if (pending) return pending;
     // Unauthenticated limits are shared across users; cached data remains usable.
-    if (this.cooldown && this.cooldown.retryAt > now) return Promise.resolve(this.cooldown);
+    if (this.cooldown) {
+      if (this.cooldown.until > elapsed) return Promise.resolve(this.cooldown.result);
+      this.cooldown = null;
+    }
 
     const request = this.load(key).then(result => {
       if (result.kind === 'success' || result.kind === 'no-repositories') {
-        this.cache.set(key, { result, expiresAt: this.now() + this.cacheTtlMs });
+        this.cache.set(key, { result, expiresAt: this.elapsed() + this.cacheTtlMs });
       }
-      if (result.kind === 'rate-limited'
-        && (!this.cooldown || result.retryAt >= this.cooldown.retryAt)) this.cooldown = result;
+      if (result.kind === 'rate-limited') {
+        const until = this.elapsed() + Math.max(0, result.retryAt - this.now());
+        if (!this.cooldown || until >= this.cooldown.until) this.cooldown = { result, until };
+      }
       return result;
     }).finally(() => {
       this.pending.delete(key);
