@@ -65,20 +65,58 @@ describe('a walker cannot enter a building', () => {
   it('walks freely down an empty street', () => {
     const collision = new CityCollision(oneBuilding, RADIUS);
     const result = collision.move({ x: 40, z: 40 }, 0, -60);
-    expect(result).toEqual({ x: 40, z: -20 });
+    // Subdividing the step accumulates a little floating point drift, so this compares
+    // the arrival rather than demanding bit equality.
+    expect(result.x).toBeCloseTo(40, 9);
+    expect(result.z).toBeCloseTo(-20, 9);
   });
 
-  it('keeps a thousand random walks out of every building in the sample city', () => {
+  it('keeps a thousand random walks out of every building, and actually meets some', () => {
     const collision = new CityCollision(sampleCity, RADIUS);
-    let point = collision.spawn({ x: 0, z: 0 });
-    // A cheap deterministic sequence: no clock, no Math.random, reproducible on failure.
+    // Start against a facade and stay among the buildings. An earlier version of this
+    // test wandered away from town on its first step and never touched a wall: it
+    // called the collision check four thousand times without one of them returning true.
+    const first = sampleCity.buildings[0]!;
+    let point = { x: first.x, z: first.z + first.depth / 2 + RADIUS + 0.2 };
     let seed = 12_345;
     const next = () => { seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648; return seed / 2_147_483_648; };
+    let refused = 0;
     for (let step = 0; step < 1_000; step += 1) {
-      const radians = next() * Math.PI * 2;
-      const distance = next() * 40;
-      point = collision.move(point, Math.cos(radians) * distance, Math.sin(radians) * distance);
+      const target = sampleCity.buildings[step % sampleCity.buildings.length]!;
+      // Aim at a building most of the time so the walk keeps running into walls.
+      const towards = Math.atan2(target.z - point.z, target.x - point.x);
+      const radians = towards + (next() - 0.5) * 1.2;
+      const distance = 1 + next() * 6;
+      const wanted = { x: point.x + Math.cos(radians) * distance, z: point.z + Math.sin(radians) * distance };
+      const moved = collision.move(point, wanted.x - point.x, wanted.z - point.z);
+      if (Math.hypot(moved.x - wanted.x, moved.z - wanted.z) > 1e-9) refused += 1;
+      point = moved;
       expect(inside(sampleCity, point), `step ${step} at ${point.x},${point.z}`).toBe(false);
+    }
+    // Without this the test proves only that walking in open ground is safe.
+    expect(refused, 'the walk never met a wall, so it proved nothing').toBeGreaterThan(50);
+  });
+
+  it('never crosses a building even when a step is wider than one', () => {
+    // The narrowest footprint the rules can produce is seven units; a step capped at
+    // half a bucket was larger, so both ends of a move could be legal with the middle
+    // of it inside the building.
+    const narrow: CitySnapshot = { buildings: [building({ x: 120, z: 72, width: 7, depth: 7 })] };
+    const collision = new CityCollision(narrow, RADIUS);
+    const result = collision.move({ x: 115, z: 72 }, 10, 0);
+    expect(result.x).toBeLessThan(120);
+    expect(inside(narrow, result)).toBe(false);
+  });
+
+  it.each([2, 5, 9, 40, 400])('stays on one side of a narrow building for a step of %i', distance => {
+    const narrow: CitySnapshot = { buildings: [building({ x: 0, z: 0, width: 7, depth: 7 })] };
+    const collision = new CityCollision(narrow, RADIUS);
+    for (const sign of [-1, 1]) {
+      const from = { x: sign * -20, z: 0 };
+      const result = collision.move(from, sign * distance * 2, 0);
+      // Crossing the centre line would mean it passed through.
+      expect(Math.sign(result.x - 0) === Math.sign(from.x) || result.x === from.x,
+        `crossed from ${from.x} to ${result.x}`).toBe(true);
     }
   });
 });

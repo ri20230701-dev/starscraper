@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { PerspectiveCamera } from 'three';
+import { PerspectiveCamera, Vector3 } from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuildingSnapshot, CitySnapshot } from '../src/application/dto/CitySnapshot';
 import { WalkControls } from '../src/presentation/input/WalkControls';
@@ -60,13 +60,63 @@ describe('walking the streets', () => {
     walk.controls.dispose();
   });
 
-  it('walks forward once locked', () => {
-    const walk = harness();
+  /** Where the camera is actually looking, flattened to the ground plane. */
+  function heading(camera: PerspectiveCamera): Vector3 {
+    camera.updateMatrixWorld(true);
+    const direction = camera.getWorldDirection(new Vector3());
+    direction.y = 0;
+    return direction.normalize();
+  }
+
+  it('walks the way the camera is looking, not the other way', () => {
+    // W used to move along +Z while the camera looked down -Z, so the walker reversed.
+    // Comparing against getWorldDirection is what makes this test independent of the
+    // convention the implementation happens to use.
+    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
     walk.setLocked(true);
     const before = walk.camera.position.clone();
+    const facing = heading(walk.camera);
     walk.press('KeyW');
     walk.controls.update(0.1);
-    expect(walk.camera.position.distanceTo(before)).toBeGreaterThan(0.5);
+    const moved = walk.camera.position.clone().sub(before);
+    expect(moved.length()).toBeGreaterThan(0.5);
+    expect(moved.normalize().dot(facing)).toBeGreaterThan(0.99);
+    walk.controls.dispose();
+  });
+
+  it('backs away from the view when S is held', () => {
+    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    walk.setLocked(true);
+    const before = walk.camera.position.clone();
+    const facing = heading(walk.camera);
+    walk.press('KeyS');
+    walk.controls.update(0.1);
+    const moved = walk.camera.position.clone().sub(before).normalize();
+    expect(moved.dot(facing)).toBeLessThan(-0.99);
+    walk.controls.dispose();
+  });
+
+  it('strafes to the right of the view when D is held', () => {
+    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    walk.setLocked(true);
+    const before = walk.camera.position.clone();
+    const facing = heading(walk.camera);
+    // For a Y-up right-handed frame, forward cross up is the camera's right.
+    const right = new Vector3().crossVectors(facing, new Vector3(0, 1, 0)).normalize();
+    walk.press('KeyD');
+    walk.controls.update(0.1);
+    const moved = walk.camera.position.clone().sub(before).normalize();
+    expect(moved.dot(right)).toBeGreaterThan(0.99);
+    walk.controls.dispose();
+  });
+
+  it('starts out facing the middle of town', () => {
+    // Ask to start inside the building so the spawn search pushes the walker out; the
+    // heading then has an actual direction to point in.
+    const walk = harness(city, { x: 0, z: 0 });
+    const toCentre = new Vector3(0, 0, 0).sub(walk.camera.position).setY(0).normalize();
+    expect(toCentre.length()).toBeGreaterThan(0.5);
+    expect(heading(walk.camera).dot(toCentre)).toBeGreaterThan(0.9);
     walk.controls.dispose();
   });
 
@@ -80,41 +130,62 @@ describe('walking the streets', () => {
   });
 
   it('cannot walk into a building however long it pushes', () => {
-    const walk = harness(city, { x: 0, z: 40 });
+    // Spawn beside the building and face it, so W actually drives into the wall. The
+    // earlier version started behind the walker's heading and strolled away from town
+    // for two hundred and sixty units without the collision code ever running.
+    const walk = harness(city, { x: 0, z: 0 });
     walk.setLocked(true);
+    const before = walk.camera.position.clone();
     walk.press('KeyW');
     for (let frame = 0; frame < 400; frame += 1) walk.controls.update(0.05);
     const { x, z } = walk.camera.position;
-    const insideFootprint = x > -9 && x < 9 && z > -9 && z < 9;
-    expect(insideFootprint, `ended inside at ${x},${z}`).toBe(false);
+    expect(x > -9.9 && x < 9.9 && z > -9.9 && z < 9.9, `ended inside at ${x},${z}`).toBe(false);
+    // It must have travelled toward the building rather than drifting off into the dark.
+    expect(walk.camera.position.distanceTo(new Vector3(0, 1.7, 0)))
+      .toBeLessThan(before.distanceTo(new Vector3(0, 1.7, 0)));
     walk.controls.dispose();
   });
 
   it('does not tunnel through a wall on a single slow frame', () => {
-    const walk = harness(city, { x: 0, z: 40 });
+    const walk = harness(city, { x: 0, z: 0 });
     walk.setLocked(true);
+    const start = walk.camera.position.clone();
+    // Whichever axis the walker approaches along is the one it must not cross.
+    const axis = Math.abs(start.x) >= Math.abs(start.z) ? 'x' : 'z';
     walk.press('KeyW');
     // A frame this long only happens after a stall, which is exactly when tunnelling
     // used to happen: the step would exceed the building's depth in one move.
     walk.controls.update(5);
     const { x, z } = walk.camera.position;
-    expect(x > -9 && x < 9 && z > -9 && z < 9).toBe(false);
-    expect(z).toBeGreaterThan(0);
+    expect(x > -9.9 && x < 9.9 && z > -9.9 && z < 9.9).toBe(false);
+    expect(Math.sign(axis === 'x' ? x : z), 'crossed to the far side of the building')
+      .toBe(Math.sign(axis === 'x' ? start.x : start.z));
     walk.controls.dispose();
   });
 
-  it('turns with the mouse and walks the way it is facing', () => {
+  it('turns with the mouse and still walks where it looks', () => {
     const walk = harness({ buildings: [] }, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.look(400);
-    const yaw = walk.camera.rotation.y;
-    expect(Math.abs(yaw)).toBeGreaterThan(0.5);
+    expect(Math.abs(walk.camera.rotation.y)).toBeGreaterThan(0.5);
+    const facing = heading(walk.camera);
     const before = walk.camera.position.clone();
     walk.press('KeyW');
     walk.controls.update(0.2);
-    const moved = walk.camera.position.clone().sub(before);
-    // Moving along the facing direction: the step and the heading must agree.
-    expect(Math.atan2(moved.x, moved.z)).toBeCloseTo(yaw, 1);
+    const moved = walk.camera.position.clone().sub(before).normalize();
+    expect(moved.dot(facing)).toBeGreaterThan(0.99);
+    walk.controls.dispose();
+  });
+
+  it('keeps walking while either bound key is still held', () => {
+    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    walk.setLocked(true);
+    walk.press('KeyW');
+    walk.press('ArrowUp');
+    walk.release('ArrowUp');
+    const before = walk.camera.position.clone();
+    walk.controls.update(0.2);
+    expect(walk.camera.position.distanceTo(before)).toBeGreaterThan(0.5);
     walk.controls.dispose();
   });
 
