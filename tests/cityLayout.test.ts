@@ -235,9 +235,11 @@ describe('the same data and instant always build the same city', () => {
     // Starting the spiral on an intersection put the first four plots on diagonal
     // corners, two cells apart, which reads as scattered blocks rather than a city.
     const buildings = city(4).buildings;
-    const spread = Math.max(...buildings.map(building =>
-      Math.max(Math.abs(building.x), Math.abs(building.z))))
-      - Math.min(...buildings.map(building => Math.min(Math.abs(building.x), Math.abs(building.z))));
+    // Measure the real bounding box. Absolute values would read a ring around the origin
+    // as tightly packed, which is exactly the arrangement this guards against.
+    const xs = buildings.map(building => building.x);
+    const zs = buildings.map(building => building.z);
+    const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
     expect(spread).toBeLessThanOrEqual(CITY_GRID.cellSize);
   });
 
