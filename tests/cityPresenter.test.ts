@@ -119,8 +119,11 @@ function harness() {
   };
 }
 
+let frameRequests = 0;
+
 beforeEach(() => {
-  vi.stubGlobal('requestAnimationFrame', () => 0);
+  frameRequests = 0;
+  vi.stubGlobal('requestAnimationFrame', () => { frameRequests += 1; return frameRequests; });
   vi.stubGlobal('cancelAnimationFrame', () => {});
   window.history.replaceState(null, '', '/');
 });
@@ -242,6 +245,38 @@ describe('the address bar, the form and the city never disagree', () => {
     renderer.releaseLock();
     expect(state().busy).toBe(false);
     expect(document.querySelector<HTMLElement>('[data-testid="crosshair"]')?.hidden).toBe(true);
+    presenter.dispose();
+  });
+
+  it('offers nothing to press when the first render fails', () => {
+    // Enabling Save and Walk over a canvas that never appeared is worse than saying the
+    // page cannot run here: both act on a scene that does not exist.
+    const { presenter, renderer } = harness();
+    renderer.failOnNextMount = true;
+    presenter.start();
+    expect(document.querySelector<HTMLButtonElement>('[data-testid="save-png"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[data-testid="walk-toggle"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="scene-status"]')?.textContent).toContain('WebGL');
+    presenter.dispose();
+  });
+
+  it('starts drawing again after a city recovers from a failed render', async () => {
+    // A failure stops the loop. Without restarting it the next city appears but never
+    // animates: orbiting and walking both stop responding with no error on screen.
+    const { presenter, renderer, settle, submit } = harness();
+    presenter.start();
+    const whileHealthy = frameRequests;
+    expect(whileHealthy).toBeGreaterThan(0);
+
+    renderer.failOnNextMount = true;
+    await submit('alpha');
+    await settle('alpha', success(['alpha-one']));
+    const afterFailure = frameRequests;
+
+    await submit('beta');
+    await settle('beta', success(['beta-one']));
+    expect(renderer.names).toEqual(['beta-one']);
+    expect(frameRequests, 'the frame loop never restarted').toBeGreaterThan(afterFailure);
     presenter.dispose();
   });
 

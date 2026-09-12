@@ -38,16 +38,11 @@ export class CityPresenter {
       onWalk: this.onWalk,
       onOpenSelection: this.onOpenSelection,
     });
-    try {
-      this.show(this.switcher.sampleView());
-      this.hud.showReady();
-      this.running = true;
-      this.frameId = requestAnimationFrame(this.tick);
-    } catch (error: unknown) {
-      console.error('City initialization failed:', error);
-      this.hud.showUnavailable();
-      return;
-    }
+    // show() reports rather than throws, and only a city that actually reached the
+    // screen may enable Save and Walk: offering them over a dead canvas is worse than
+    // saying the page cannot run here.
+    if (!this.show(this.switcher.sampleView())) return;
+    this.hud.showReady();
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('pageshow', this.onPageShow);
@@ -62,8 +57,9 @@ export class CityPresenter {
    * Draw a view and align the address bar with it. Mounting disposes the previous scene
    * first, so a visitor comparing several accounts does not accumulate a renderer each time.
    */
-  private show(view: CityView): void {
-    if (!this.viewport) return;
+  /** Draws the view, reporting whether it reached the screen. */
+  private show(view: CityView): boolean {
+    if (!this.viewport) return false;
     // A new city means a new set of streets; any walk through the old one is over.
     if (this.walking) this.renderer.setMode('orbit', this.onLockChange);
     this.walking = false;
@@ -78,10 +74,20 @@ export class CityPresenter {
       // a status line that still claims a city is loading.
       console.error('City render failed:', error);
       this.onFailure();
-      return;
+      return false;
     }
     this.username = view.username;
     this.hud.showCity(view.message, view.username, view.city.buildings.length);
+    // A previous failure stops the loop. A city that renders again has to start moving.
+    this.resumeFrames();
+    return true;
+  }
+
+  private resumeFrames(): void {
+    if (this.running) return;
+    this.running = true;
+    this.previousTime = null;
+    this.frameId = requestAnimationFrame(this.tick);
   }
 
   private readonly onSubmit = (value: string): void => {
@@ -187,7 +193,10 @@ export class CityPresenter {
   };
 
   private readonly onFailure = (): void => {
+    // Stop the loop: there is nothing to draw, and a later successful render restarts it.
     this.stop();
+    this.walking = false;
+    this.selected = null;
     this.hud.showUnavailable();
   };
 
