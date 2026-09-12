@@ -218,9 +218,27 @@ describe('the same data and instant always build the same city', () => {
       repository({ name: 'new', pushedAt: REFERENCE - DAY }),
     ].sort(byRecency);
     expect(sorted.map(entry => entry.name)).toEqual(['new', 'old']);
-    const [downtown] = layoutCity(sorted, REFERENCE).buildings;
-    expect(Math.abs(downtown!.x) + Math.abs(downtown!.z))
-      .toBeLessThan(CITY_GRID.cellSize * CITY_GRID.roadPeriod);
+
+    // Downtown is the first plot the spiral reaches, which is not the world origin: the
+    // walk starts inside a block so that a small account stays clustered.
+    const [first] = plotCells(1);
+    const downtown = { x: first!.gx * CITY_GRID.cellSize, z: first!.gz * CITY_GRID.cellSize };
+    const built = city(60);
+    const distances = built.buildings.map(building =>
+      Math.hypot(building.x - downtown.x, building.z - downtown.z));
+    expect(distances[0]).toBe(0);
+    // The fixture ages each repository by one more day, so later entries sit further out.
+    expect(distances[distances.length - 1]!).toBeGreaterThan(distances[1]!);
+  });
+
+  it('keeps a small account clustered instead of ringing an empty crossroads', () => {
+    // Starting the spiral on an intersection put the first four plots on diagonal
+    // corners, two cells apart, which reads as scattered blocks rather than a city.
+    const buildings = city(4).buildings;
+    const spread = Math.max(...buildings.map(building =>
+      Math.max(Math.abs(building.x), Math.abs(building.z))))
+      - Math.min(...buildings.map(building => Math.min(Math.abs(building.x), Math.abs(building.z))));
+    expect(spread).toBeLessThanOrEqual(CITY_GRID.cellSize);
   });
 
   it('builds an empty city without throwing', () => {
