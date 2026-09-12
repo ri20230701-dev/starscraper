@@ -30,13 +30,10 @@ npm run dev
 
 ```bash
 npm test        # 全テスト
-npm run typecheck
-npx vite build  # issue #1 のバンドル検証
+npm run build   # 型チェック + 全テスト + バンドル
 ```
 
-既存の `npm run build` は `tests/architecture.test.ts` を要求します。
-そのテストは issue #6 で追加予定のため、現段階では上記の個別コマンドを使用します。
-描画方式・検証結果・実ブラウザでの未確認項目は [docs/RENDER_VALIDATION.md](docs/RENDER_VALIDATION.md) を参照してください。
+描画方式・実測値・未確認項目は [docs/RENDER_VALIDATION.md](docs/RENDER_VALIDATION.md) を参照してください。
 
 ## 設計
 

@@ -77,10 +77,14 @@ vite v8.3.0 building client environment for production...
 ✓ built
 ```
 
-`npm run typecheck`, `npm test`, and `npx vite build` exit 0. Vite emits its normal
+`npm run typecheck`, `npm test`, and `npm run build` all exit 0. Vite emits its normal
 large-chunk warning for the bundled Three.js code (about 585 kB / 146 kB gzip).
-The existing `npm run build` exits 1 because it selects the absent
-`tests/architecture.test.ts` (issue #6). Its script and PLAN.md were not changed.
+
+The `build` script originally selected a single file, `tests/architecture.test.ts`,
+which does not exist until issue #6 — so `npm run build` exited 1, and green tests
+could not imply a green build. It now runs `vitest run` over the whole suite, which
+both fixes the failure and closes the gap where `build` passed while unit tests were
+broken. Issue #6's architecture test will be picked up automatically.
 
 `npm run dev -- --host 127.0.0.1 --port 5174 --strictPort` started successfully:
 
