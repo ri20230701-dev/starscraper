@@ -39,7 +39,6 @@ export class ThreeCityRenderer implements CityRenderer {
       this.renderer.toneMappingExposure = 1.0;
       this.scene = new Scene();
       this.scene.background = new Color('#050a16');
-      this.scene.fog = new FogExp2('#050a16', 0.0025);
       // The city must read as lit *by its own windows*. Ambient and moonlight only
       // carve the silhouettes; anything brighter turns the facades into daylight.
       this.scene.add(new HemisphereLight('#8ba9e0', '#101724', 0.32));
@@ -57,7 +56,10 @@ export class ThreeCityRenderer implements CityRenderer {
       this.scene.add(this.buildings.group);
       const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
       const framing = frameCity(city, 43, aspect);
-      this.camera = new PerspectiveCamera(43, aspect, 0.5, 4000);
+      // Fog and the far plane follow the city's size. Fixed values buried a large city
+      // in haze and let the furthest allowed zoom push every building past the far plane.
+      this.scene.fog = new FogExp2('#050a16', framing.fogDensity);
+      this.camera = new PerspectiveCamera(43, aspect, 0.5, framing.far);
       this.camera.position.set(...framing.position);
       container.append(canvas);
       this.controls = new CityOrbitControls(this.camera, canvas, framing);

@@ -7,7 +7,15 @@ export interface CityFraming {
   readonly target: readonly [number, number, number];
   readonly minDistance: number;
   readonly maxDistance: number;
+  /** Far plane and fog density sized for this city, not for a fixed one. */
+  readonly far: number;
+  readonly fogDensity: number;
 }
+
+const EMPTY: CityFraming = {
+  position: [90, 70, 110], target: [0, 6, 0],
+  minDistance: 20, maxDistance: 650, far: 2600, fogDensity: 0.0025,
+};
 
 /**
  * Frame the camera around the city that actually exists.
@@ -16,11 +24,13 @@ export interface CityFraming {
  * repositories as a speck in the dark — and most accounts are far below a hundred. The
  * opening shot has to fit whatever it is given, because switching users changes the
  * city's extent by an order of magnitude.
+ *
+ * Fitting is done against a sphere around the point the camera looks at. Fitting the
+ * half-height instead left the target below the true centre, so a single very tall tower
+ * projected past the top of the screen even though the arithmetic said it fit.
  */
 export function frameCity(city: CitySnapshot, verticalFovDegrees: number, aspect: number): CityFraming {
-  if (city.buildings.length === 0) {
-    return { position: [90, 70, 110], target: [0, 6, 0], minDistance: 20, maxDistance: 650 };
-  }
+  if (city.buildings.length === 0) return EMPTY;
 
   // Measure the city where it actually stands. The grid starts inside a block rather
   // than at the origin, so assuming the skyline is centred would frame empty ground.
@@ -38,24 +48,38 @@ export function frameCity(city: CitySnapshot, verticalFovDegrees: number, aspect
   }
   const centreX = (minX + maxX) / 2;
   const centreZ = (minZ + maxZ) / 2;
-  // A lone building still needs breathing room, so the radius has a floor.
-  const radius = Math.max(Math.hypot(maxX - minX, maxZ - minZ) / 2, 34);
+  // Aim at the middle of the skyline's height so the fit is symmetric about the axis.
+  const targetY = tallest / 2;
+
+  // Radius of the sphere that contains every building corner, measured from the target.
+  const halfX = Math.max((maxX - minX) / 2, 12);
+  const halfZ = Math.max((maxZ - minZ) / 2, 12);
+  const radius = Math.max(Math.hypot(halfX, halfZ, targetY), 26);
 
   const verticalFov = (verticalFovDegrees * Math.PI) / 180;
-  // The horizontal field is the binding one on wide screens and the vertical one on tall
-  // screens, so fit against whichever is narrower.
-  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(0.2, aspect));
-  const span = Math.hypot(radius, tallest / 2);
-  const distance = (span / Math.tan(Math.min(verticalFov, horizontalFov) / 2)) * 1.15;
+  // The horizontal field binds on wide screens and the vertical one on tall screens, so
+  // fit against whichever is narrower. The real aspect is used, unclamped, because the
+  // camera itself is not clamped and a mismatch is what lets the edges crop.
+  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * safeAspect);
+  // A sphere of this radius fits when the half-angle subtends it: distance = r / sin(θ/2).
+  const distance = (radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.08;
 
   // Roughly 34 degrees above the ground: high enough to read the street grid, low enough
   // that the towers still overlap and the skyline has depth.
   const elevation = Math.sin(0.6) * distance;
   const ground = Math.cos(0.6) * distance;
+  const maxDistance = distance * 3;
   return {
-    position: [centreX + ground * 0.68, elevation + tallest * 0.25, centreZ + ground * 0.73],
-    target: [centreX, Math.min(tallest * 0.45, 40), centreZ],
+    position: [centreX + ground * 0.68, targetY + elevation, centreZ + ground * 0.73],
+    target: [centreX, targetY, centreZ],
     minDistance: Math.max(12, radius * 0.2),
-    maxDistance: distance * 3.5,
+    maxDistance,
+    // Everything must stay visible at the furthest allowed zoom, so the far plane clears
+    // the whole city from there rather than sitting at a fixed depth.
+    far: (maxDistance + radius) * 1.25,
+    // Fog is tuned to the city's own size. A density fixed for a small scene buried a
+    // large one: at the opening distance almost none of the original colour survived.
+    fogDensity: 0.9 / Math.max(1, distance + radius),
   };
 }
