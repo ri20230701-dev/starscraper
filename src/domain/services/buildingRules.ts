@@ -11,8 +11,13 @@ export const BUILDING_RULES = Object.freeze({
   heightPerDoubling: 6,
   minFootprint: 7,
   maxFootprint: MAX_FOOTPRINT,
-  /** World units of footprint per doubling of repository size. */
-  footprintPerDoubling: 1.3,
+  /**
+   * Repository size, in KB, that reaches the widest plot. Chosen at 100 MiB because
+   * ordinary repositories run from a few hundred KB to tens of MB: saturating earlier
+   * would flatten most of a real account into one identical footprint and throw the
+   * size signal away.
+   */
+  footprintSaturationKb: 102_400,
   /** Forks stay low so originals keep the skyline. */
   forkHeightScale: 0.6,
   forkDesaturation: 0.45,
@@ -41,11 +46,13 @@ export function heightOf(repository: Repository): number {
 
 /**
  * Footprint also grows per doubling, then clamps. The upper clamp is the grid's own
- * limit, which is what keeps a building from ever reaching the road.
+ * limit, which is what keeps a building from ever reaching the road. The rate is derived
+ * from the saturation size rather than picked, so the widest plot lands exactly there.
  */
 export function footprintOf(sizeKb: number): number {
-  const footprint = BUILDING_RULES.minFootprint
-    + BUILDING_RULES.footprintPerDoubling * Math.log2(Math.max(0, sizeKb) + 1);
+  const span = BUILDING_RULES.maxFootprint - BUILDING_RULES.minFootprint;
+  const rate = span / Math.log2(BUILDING_RULES.footprintSaturationKb + 1);
+  const footprint = BUILDING_RULES.minFootprint + rate * Math.log2(Math.max(0, sizeKb) + 1);
   return Math.min(BUILDING_RULES.maxFootprint, Math.max(BUILDING_RULES.minFootprint, footprint));
 }
 
@@ -59,11 +66,18 @@ export function nameNoise(name: string): number {
   return hash / 0x100000000;
 }
 
-/** A slab city looks generated; depth varies around the footprint, still inside the clamp. */
+/**
+ * A slab city looks generated, so depth varies around the footprint by name.
+ *
+ * The noise maps into the legal interval rather than being clamped afterwards. Clamping
+ * a scaled value collapses at the ends: at the widest footprint every name above the
+ * midpoint produced the same depth, so large repositories all became one identical box.
+ */
 export function depthOf(repository: Repository): number {
   const footprint = footprintOf(repository.sizeKb);
-  const varied = footprint * (0.75 + 0.5 * nameNoise(repository.name));
-  return Math.min(BUILDING_RULES.maxFootprint, Math.max(BUILDING_RULES.minFootprint, varied));
+  const lower = Math.max(BUILDING_RULES.minFootprint, footprint * 0.75);
+  const upper = Math.min(BUILDING_RULES.maxFootprint, footprint * 1.25);
+  return lower + (upper - lower) * nameNoise(repository.name);
 }
 
 export function wallColorOf(repository: Repository): string {
