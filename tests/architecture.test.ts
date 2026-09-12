@@ -49,6 +49,25 @@ function isNamedReference(node: ts.Node, name: string): boolean {
       && ts.isIdentifier(node.expression) && node.expression.text === 'globalThis' && memberName(node) === name);
 }
 
+/** Treat `Math` and `globalThis.Math` as the same reference to the value itself. */
+function referenceRoot(node: ts.Node): ts.Node {
+  const parent: ts.Node | undefined = node.parent;
+  return parent && ts.isPropertyAccessExpression(parent) && parent.name === node ? parent : node;
+}
+
+/**
+ * True when the reference only serves as the object of a member access, as in
+ * `Math.floor(x)`. Anything else — assignment, an argument, destructuring — hands the
+ * value itself to the caller, which is how an alias escapes a member-level ban.
+ */
+function isMemberAccessTarget(node: ts.Node): boolean {
+  const root = referenceRoot(node);
+  const parent: ts.Node | undefined = root.parent;
+  return Boolean(parent)
+    && (ts.isPropertyAccessExpression(parent!) || ts.isElementAccessExpression(parent!))
+    && parent!.expression === root;
+}
+
 /** Inspect syntax, including re-exports and dynamic/type imports; comments and copy are not code. */
 function inspectSource(filename: string, text: string): string[] {
   if (/\.test\.[cm]?tsx?$/.test(filename)) return [];
@@ -74,6 +93,13 @@ function inspectSource(filename: string, text: string): string[] {
     }
     const resolved = ts.resolveModuleName(specifier, filename, compilerOptions, ts.sys).resolvedModule?.resolvedFileName;
     const target = resolved ?? (specifier.startsWith('.') ? path.resolve(path.dirname(filename), specifier) : null);
+    // Test modules are exempt from this scan, so production code reaching one could
+    // launder a forbidden dependency through a re-export the scan never reads.
+    // The extension is optional because an unresolvable specifier keeps its own spelling.
+    if (target && /\.test(\.[cm]?tsx?)?$/.test(target)) {
+      report(node, `${from} cannot import the unscanned test module ${specifier}`);
+      return;
+    }
     const to = target ? layerOf(target) : null;
     if (!from || !to || !allowed[from].includes(to)) {
       report(node, `${from} cannot import ${specifier} (${to ?? 'external/outside layers'})`);
@@ -99,21 +125,23 @@ function inspectSource(filename: string, text: string): string[] {
       report(node, `Forbidden browser reference: ${reference}`);
     }
     if (node.kind === ts.SyntaxKind.AnyKeyword) report(node, 'Explicit any is forbidden.');
-    if (from === 'domain' && reference === 'Date') {
-      report(node, 'Domain must not reference Date; pass timestamps as data (PLAN §6).');
+    // Banning the binding itself, not just Date.now(), closes the alias route:
+    // `const clock = Date; clock.now()` reads the clock through a member access the
+    // scan never sees. Neither pure layer has any business naming Date at all.
+    if (pureLayer && reference === 'Date' && (ts.isIdentifier(node) || ts.isElementAccessExpression(node))) {
+      report(node, 'Pass the reference timestamp as an argument instead of naming Date (PLAN §6).');
     }
-    if (from === 'application') {
+    if (from === 'domain') {
       if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
-        && isNamedReference(node.expression, 'Date') && memberName(node) === 'now') {
-        report(node, 'Pass the reference timestamp as an argument instead of reading Date.now.');
+        && isNamedReference(node.expression, 'Math') && memberName(node) === 'random') {
+        report(node, 'Domain randomness must be deterministic from explicit inputs.');
       }
-      if (ts.isNewExpression(node) && isNamedReference(node.expression, 'Date')) {
-        report(node, 'Pass the reference timestamp as an argument instead of constructing Date.');
+      // Math.floor and Math.log2 are load-bearing for the placement rules, so only the
+      // aliasing form is banned: handing Math itself to a caller hides Math.random.
+      if (reference === 'Math' && (ts.isIdentifier(node) || ts.isElementAccessExpression(node))
+        && !isMemberAccessTarget(node)) {
+        report(node, 'Domain may call Math members but must not alias Math itself.');
       }
-    }
-    if (from === 'domain' && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
-      && isNamedReference(node.expression, 'Math') && memberName(node) === 'random') {
-      report(node, 'Domain randomness must be deterministic from explicit inputs.');
     }
     if (reference === 'requestAnimationFrame' && filename !== frameOwner) {
       report(node, 'Only presentation/CityPresenter.ts may own requestAnimationFrame.');
@@ -192,6 +220,41 @@ describe('starscraper architecture build gate', () => {
       expect(inspectSource(path.join(sourceRoot, 'domain/probe.ts'), source)).not.toEqual([]);
     }
     expect(inspectSource(path.join(sourceRoot, 'domain/probe.ts'), 'const age = (now: number, pushedAt: number) => now - pushedAt;')).toEqual([]);
+  });
+
+  it.each([
+    'const clock = Date; export const time = () => clock.now();',
+    'export const time = (clock: { now(): number }) => clock.now(); time(Date);',
+    'const { now } = Date;',
+    "const clock = globalThis['Date'];",
+  ])('closes the alias route around the reference-time ban: %s', source => {
+    for (const layer of ['domain', 'application']) {
+      expect(inspectSource(path.join(sourceRoot, layer, 'probe.ts'), source)).not.toEqual([]);
+    }
+  });
+
+  it.each([
+    'const rng = Math; export const next = () => rng.random();',
+    'export const pick = (source: Math) => source.random(); pick(Math);',
+    "const rng = globalThis['Math'];",
+  ])('closes the alias route around domain randomness: %s', source => {
+    expect(inspectSource(path.join(sourceRoot, 'domain/probe.ts'), source)).not.toEqual([]);
+  });
+
+  it('still lets the placement rules call Math members directly', () => {
+    // Height uses a logarithm and footprints floor to whole cells, so a blanket ban on
+    // Math would outlaw the very rules this project is built on.
+    const source = 'export const height = (stars: number) => 4 + 6 * Math.log2(stars + 1);'
+      + ' export const cells = (size: number) => Math.max(1, Math.floor(size / 2.4));'
+      + " export const wide = (size: number) => globalThis['Math'].ceil(size);";
+    expect(inspectSource(path.join(sourceRoot, 'domain/probe.ts'), source)).toEqual([]);
+  });
+
+  it('refuses production imports of unscanned test modules', () => {
+    for (const layer of ['domain', 'application', 'infrastructure', 'presentation']) {
+      expect(inspectSource(path.join(sourceRoot, layer, 'probe.ts'),
+        "export { anything } from './bridge.test';")).toHaveLength(1);
+    }
   });
 
   it('bans explicit any in all source layers and the composition root', () => {
