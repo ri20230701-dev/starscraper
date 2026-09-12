@@ -35,3 +35,116 @@ h1 { font: 400 clamp(30px, 3.4vw, 50px)/1.1 'Space Grotesk', sans-serif; letter-
   .fixture-label, .controls-hint { display: none; }
   .scene-status { font-size: 10px; }
 }
+
+/* Pointer lock hides the cursor, so the crosshair is the aiming reticle. */
+.crosshair {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  z-index: 3;
+}
+.crosshair::before,
+.crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+.crosshair::before { inset: 8px 0; }
+.crosshair::after { inset: 0 8px; }
+
+.selection {
+  position: fixed;
+  left: 50%;
+  bottom: 15vh;
+  transform: translateX(-50%);
+  max-width: min(42ch, 80vw);
+  padding: 0.75rem 1.1rem;
+  text-align: center;
+  border-radius: 10px;
+  background: rgba(6, 10, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  z-index: 3;
+}
+.selection h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+.selection-facts {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+.selection-description {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.82;
+}
+.selection-description:empty { display: none; }
+
+.walk-button {
+  /* The toolbar is pointer-events: none so the canvas stays draggable underneath it.
+     Every control inside has to opt back in, or it is decorative. */
+  pointer-events: auto;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: inherit;
+  padding: 0.5rem 0.9rem;
+  margin-right: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  cursor: pointer;
+}
+.walk-button:disabled { opacity: 0.4; cursor: default; }
+.walk-button:not(:disabled):hover { border-color: rgba(255, 255, 255, 0.4); }
+
+
+/* The lookup form lives inside .intro, which is pointer-events: none so that dragging
+   across the copy still orbits the city. Without opting back in the field cannot be
+   focused or typed into at all. */
+.lookup { margin-top: 26px; pointer-events: auto; }
+.lookup-label {
+  display: block;
+  font: 500 10px 'DM Sans', sans-serif;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #8e9aad;
+  margin-bottom: 8px;
+}
+.lookup-row { display: flex; gap: 8px; }
+.lookup-input {
+  pointer-events: auto;
+  width: 190px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  border: 1px solid #2a3550;
+  background: #0b1220;
+  color: #eef5fa;
+  font: 400 13px 'DM Sans', sans-serif;
+}
+.lookup-input::placeholder { color: #5b6880; }
+.lookup-input:focus { outline: none; border-color: #6f8bbd; }
+.lookup-input:disabled { opacity: .5; }
+.lookup-button {
+  pointer-events: auto;
+  padding: 10px 16px;
+  border-radius: 5px;
+  border: 1px solid #2a3550;
+  background: #16203a;
+  color: #eef5fa;
+  font: 600 12px 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+.lookup-button:hover:not(:disabled) { background: #1e2b4c; border-color: #405a8c; }
+.lookup-button:disabled { opacity: .45; cursor: default; }
