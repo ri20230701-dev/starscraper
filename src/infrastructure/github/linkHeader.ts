@@ -32,13 +32,21 @@ export function hasNextLink(header: string | null): boolean {
   return splitOutsideValues(header, ',').some(link => {
     const [target, ...parameters] = splitOutsideValues(link, ';');
     if (!target || !/^\s*<[^<>]*>\s*$/.test(target)) return false;
+    let next = false;
+    let seenRelation = false;
     for (const parameter of parameters) {
+      // RFC 8288 section 3.2 forbids processing a link without applying its anchor.
+      // An anchored link describes some other resource, so it cannot report whether
+      // *this* collection has another page. We drop it rather than resolve anchors.
+      if (/^\s*anchor\s*=/i.test(parameter)) return false;
+      if (seenRelation) continue;
       const relation = /^\s*rel\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s";]+))\s*$/i.exec(parameter);
       if (!relation) continue;
       const value = (relation[1] ?? relation[2] ?? '').replace(/\\(.)/g, '$1');
       // The first rel parameter wins; repeated rel parameters are not valid link syntax.
-      return value.toLowerCase().split(/\s+/).includes('next');
+      seenRelation = true;
+      next = value.toLowerCase().split(/\s+/).includes('next');
     }
-    return false;
+    return next;
   });
 }
