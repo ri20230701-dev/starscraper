@@ -38,7 +38,13 @@ export function messageFor(result: RepositoryResult, username: string, now: numb
     case 'no-repositories':
       return { text: `${username} has no public repositories yet.`, usingSample: false, tone: 'info' };
     case 'user-not-found':
-      return { text: `No GitHub user called ${username}.`, usingSample: false, tone: 'error' };
+      // The sample stays on screen, so say so. Claiming a live account while showing
+      // bundled data is worse than the miss itself.
+      return {
+        text: `No GitHub user called ${username}. Showing the sample city.`,
+        usingSample: true,
+        tone: 'error',
+      };
     case 'rate-limited':
       // Falling back to the sample keeps something on screen: an empty dark canvas
       // reads as a broken page, and the limit is per address, not per visitor.
