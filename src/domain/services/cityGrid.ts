@@ -69,8 +69,13 @@ export function* spiralCells(): Generator<GridCell> {
 
 /** The first `count` cells that are plots rather than road, in spiral order. */
 export function plotCells(count: number): readonly GridCell[] {
+  // The loop below stops on an exact length match, so a fractional or infinite count
+  // would spiral outward forever rather than fail.
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new RangeError('plotCells needs a nonnegative safe integer count.');
+  }
   const plots: GridCell[] = [];
-  if (count <= 0) return plots;
+  if (count === 0) return plots;
   for (const cell of spiralCells()) {
     if (!isRoadCell(cell.gx, cell.gz)) plots.push(cell);
     if (plots.length === count) break;
