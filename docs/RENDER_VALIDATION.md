@@ -348,3 +348,151 @@ pointer-lock tests must not be reported as Walk performance measurements.
 - A pedestrian walking in reverse that lands exactly on a corner faces the segment it is
   leaving for that one frame. Phases come from a hash, so landing exactly on a corner is
   not reachable in practice.
+
+## Issue #16 — bounded ground reflections and night finish (2026-09-14)
+
+This section describes the current implementation. Earlier issue sections above are
+historical measurements/settings, not validation of these new effects.
+
+### Implemented scope and numerical bounds
+
+- The existing single ground mesh and its `MeshStandardMaterial` remain:
+  `color='#101925'`, roughness **0.86**, metalness **0.55**, standard lighting and fog.
+  `GroundReflection` borrows this geometry for an **off-scene** Reflector. Its stock
+  material is never drawn onto the ground, and no overlapping surface is added.
+- Before the composer, Reflector renders the scene with the ground hidden, then a
+  fixed `[0.25, 0.5, 0.25]` filter runs once horizontally and once vertically, with
+  offsets of exactly **one texel**. There are no time or normal perturbation inputs.
+- The source RT uses **HalfFloatType, 4× MSAA**; both blur RTs also use HalfFloatType.
+  Backing dimensions are scaled uniformly to a longest side of at most **1024**,
+  with nearest-integer rounding of the other side (minimum one pixel). For example,
+  3440×1352 and 5160×2028 both produce **1024×402**; 1352×3440 produces **402×1024**.
+- The standard material's `outgoingLight` receives only
+  `0.08 * R / (1 + max(R.r, R.g, R.b))`, with `R=max(sample.rgb, 0)`.
+  For `M=max(R) >= 0`, each additional component is at most `0.08*M/(1+M) < 0.08`.
+  Fog and the standard output chunks remain after this addition.
+- Reflection validity resets to zero **before every attempt**, and on resize. The
+  guard uses world-space plane/camera positions and the same facing predicate as
+  r186 Reflector. A back-facing or hidden ground never samples the previous image.
+  Validity becomes one only after reflection generation and both blur draws finish.
+  Exceptions restore the original ground visibility, render target, XR and shadow
+  state, while leaving validity zero.
+- The composer is now **RenderPass → UnrealBloomPass → NightFinishPass → OutputPass**.
+  ACES, exposure **1.0**, and Bloom **0.48 / 0.42 / 1.15** are unchanged.
+- `NightFinishPass` uses integer framebuffer coordinates and a uint hash. Each pair
+  of adjacent horizontal pixels has equal and opposite grain, bounded by **±0.012**;
+  an odd-width row's last pixel is zero. Thus the generated additive grain has zero
+  spatial sum without relying on a statistical average. It is independent of time
+  and source luminance. The pass adds grain after the vignette so vignette weights
+  do not unbalance those pairs. No positive-only clamp is applied in this pass.
+- With `d=length(2*uv-1)/sqrt(2)`, the vignette multiplier is
+  `1 - 0.16*smoothstep(0.55, 1, d)`: **1.0 for d≤0.55**, reaching **0.84 at corners**.
+  These are shader-space bounds. The center is unchanged by the vignette; grain
+  still applies there. All numerical bounds above are before the fixed OutputPass.
+  **±0.012 linear HDR is not a promise of exactly ±3/255 in the final sRGB PNG**:
+  ACES, sRGB encoding, clipping and quantization are nonlinear. Likewise zero-mean
+  input grain does not guarantee zero change in the encoded image's mean brightness.
+  No measured display-space amplitude or visual-quality claim is made here.
+- `capturePng()` is unchanged: **resize → renderFinal → toDataURL**, synchronously,
+  with no animation/control update. Reflection and finish use this same final path.
+- Reflection disposal releases its RT, two blur RTs, both shader materials and the
+  fullscreen quad, and restores the ground material hooks. The ground owner alone
+  disposes its borrowed geometry/material. The new finish pass is also disposed.
+  Existing instance and composer cleanup remains intact.
+
+### Executed verification
+
+`npm run build` exited **0** with this actual output:
+
+```text
+Test Files  17 passed (17)
+     Tests  352 passed (352)
+
+vite v8.3.0 building client environment for production...
+✓ 48 modules transformed.
+dist/index.html                   2.45 kB │ gzip:   0.97 kB
+dist/assets/index-ckli2u_d.css    4.30 kB │ gzip:   1.58 kB
+dist/assets/index-DiNFTrm-.js   640.36 kB │ gzip: 163.45 kB
+✓ built in 125ms
+```
+
+The unchanged checkout was built before editing: **630.68 kB / 160.79 kB gzip**.
+The JS increase is **9.68 kB** (gzip **2.66 kB**). Against the brief's **630.52 kB**
+reference, the increase is **9.84 kB**, also below **100 kB**. Vite's existing
+>500 kB chunk warning remains; it is not a build failure. The browser test page is
+outside the production entry graph and does not enter this bundle.
+
+The tests executed include:
+
+- The unchanged AST architecture gate; no allowlist changes, and no changes to
+  `domain`, `application`, or `WindowMaterial.ts`.
+- Ground reflection front→back invalidation, transformed planes, hidden ground,
+  resize invalidation, and failures in each of the three render stages.
+- Actual r186 Reflector CPU callback and RT objects against a stub renderer:
+  RT formats/samples/sizes, two blur directions and their input textures, shader
+  hook ordering relative to fog, resource ownership/disposal and state restoration.
+  **The stub's three `render()` calls are not measured GPU draw calls.**
+- Composer ordering, fixed Bloom values, DPR sizing, reflection-before-composer,
+  finish pass cleanup, and the existing capture/animation lifecycle checks.
+
+These are CPU/unit tests and source integration checks. They do **not** execute GLSL,
+link GPU programs, compare rendered pixels or establish visual acceptance.
+
+### Real WebGL acceptance — NOT EXECUTED
+
+The browser permission review rejected navigation to
+`http://127.0.0.1:5198/tests/browser/night-look.html`, reporting that the user had
+not permitted that access. No alternate browser/automation route was attempted.
+Therefore **draw calls ≤238 are unmeasured**, and **consecutive real-WebGL PNG
+identity is unverified**. Both acceptance items remain open. There is no new GPU,
+DPR, screenshot, Walk, appearance, FPS or frame-time measurement for issue #16.
+
+Vitest uses jsdom for `threeCityRenderer.test.ts`; that test explicitly substitutes
+WebGLRenderer, postprocessing, `getContext()` and `toDataURL()`. Its successful
+capture-order assertion is not image equality evidence. jsdom in this project does
+not provide a real WebGL graphics context.
+
+A runnable alternative is provided in **`tests/browser/night-look.html`** and
+**`tests/browser/night-look.ts`**, not registered as a passing Vitest image test:
+
+1. Run `npm run dev -- --host 127.0.0.1 --port 5198 --strictPort` and open
+   `http://127.0.0.1:5198/tests/browser/night-look.html` in permitted desktop Chrome.
+2. The page builds a fixed synthetic **100-repository** city from the existing sample
+   fields via the real `BuildCity`, with recent activity and forks=8200 to exercise
+   street-life batches/population limits. It mounts the production renderer, with
+   **real WebGL and a real PNG encoder**, and advances the scene once by 3.25 seconds.
+   It has no RAF loop and fetches no GitHub data.
+3. The page records the production **`[starscraper scene]` DEV log** and rejects
+   `calls>238`. It checks context availability/loss and preserveDrawingBuffer=false,
+   captures console errors (including shader compilation errors), and records GPU
+   identity. It tests renderer DPR inputs **1 and 1.5**, explicitly overriding the
+   page's DPR property temporarily; it records the native browser DPR separately.
+   This exercises backing-store scaling without claiming a native high-DPR display.
+4. For CSS sizes **3440×1352, 801×601 and 601×801** at each DPR input, it resizes the
+   container and executes the actual `adapter.capturePng()` **twice as adjacent
+   synchronous statements in the same JS execution**, with no await/update/events
+   between them. It asserts exact data-URL equality, PNG prefix, expected backing
+   dimensions and a minimum payload size. It disposes each mount and restores DPR.
+5. Read and retain the displayed JSON. **Only `status: "PASS"` with six
+   `identical: true` results, both scene logs within budget, and no errors is a
+   completed run.** `RUNNING`, typechecking the page, or adding the file is not a
+   pass. Record browser/GPU/native DPR, scene logs and results here after execution.
+   This is an opening-camera test on synthetic data, not Walk or visual approval.
+
+### Rejected measures and reasons
+
+| Measure | Reason it was not adopted |
+| --- | --- |
+| B: Window glass texture/roughness changes | Would disturb the distant window-area averaging and alter how lit ratio communicates repository activity. `WindowMaterial.ts` is untouched. |
+| Chromatic aberration / RGBShiftShader | The proposed 0.005 offset moves each side by 17.2 pixels at width 3440, harming window edges and language-color readability. No channel shift is added. |
+| Stock FilmPass / FilmShader | Its positive, luminance-dependent noise does not satisfy zero-mean, uniform additive grain. The one custom pass uses deterministic signed pairs instead. |
+| D: Exposure / tone mapping retuning | Would invalidate the established lighting baseline and change how existing emission reads. ACES, exposure 1.0 and existing Bloom constants stay fixed. |
+| E: Depth of field | Blurring buildings would hide height, language color and lit-ratio information, and would require camera-distance-dependent visual validation unavailable here. |
+| F: Additional Bloom stages | UnrealBloomPass already uses five mip levels; adding more stages is unnecessary for this bounded change and adds rendering cost. |
+| Stock Reflector ground replacement | Its overlay blend does not preserve the ground's standard lighting, roughness or fog. Only its reflected-image generation is used. |
+| Animated ripples / stretched wet streaks | Outside the specified static, softly blurred reflection; a planar Reflector does not itself produce elongated wet streaks. |
+
+Before committing these changes, `npm run build` was run again on 2026-09-14:
+typechecking, all **352 tests across 17 files**, and the production build passed.
+The JS bundle remained **640.36 kB / 163.45 kB gzip**, with the existing chunk-size
+warning. Real WebGL acceptance remains unexecuted as described above.

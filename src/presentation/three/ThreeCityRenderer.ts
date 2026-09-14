@@ -84,7 +84,7 @@ export class ThreeCityRenderer implements CityRenderer {
       this.camera.position.set(...framing.position);
       container.append(canvas);
       this.controls = new CityOrbitControls(this.camera, canvas, framing);
-      this.postProcessing = new CityPostProcessing(this.renderer, this.scene, this.camera);
+      this.postProcessing = new CityPostProcessing(this.renderer, this.scene, this.camera, this.ground);
       canvas.addEventListener('webglcontextlost', this.onContextLost);
       this.observer = new ResizeObserver(this.resize);
       this.observer.observe(container);
