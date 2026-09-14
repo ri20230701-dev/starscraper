@@ -13,6 +13,9 @@ uniform vec2 uWindowAperture;
 uniform uint uBuildingId;
 uniform float uWindowLitRatio;
 uniform vec3 uWindowEmission;
+uniform float uShopBandTop;
+uniform float uShopOpenRatio;
+uniform float uShopBusyness;
 
 // Integer mixing is independent of frame, camera, and floating-point sine precision.
 uint windowHash(uint value) {
@@ -51,6 +54,10 @@ vec2 buildingWindows() {
   if (abs(vBuildingNormal.y) > 0.5 || min(count.x, count.y) < 1.0) return vec2(0.0);
 
   vec2 cell = floor(cellPosition);
+  // Replace cell.y == 0 (and the lower margin), never part of an aperture.
+  // Exclude it before the average path as well, so distant shops cannot become windows.
+  float firstWindowRow = uShopBandTop > 0.0 ? 1.0 : 0.0;
+  if (uShopBandTop > 0.0 && cell.y <= 0.0) return vec2(0.0);
   vec2 distanceFromCenter = abs(fract(cellPosition) - 0.5);
   vec2 halfAperture = uWindowAperture / uWindowPitch * 0.5;
   vec2 edgeAA = footprint * 0.5;
@@ -67,9 +74,28 @@ vec2 buildingWindows() {
   vec2 coverage = mix(vec2(detailedGlass, detailedGlass * lit),
                       vec2(averageGlass, averageGlass * uWindowLitRatio), averageWeight);
   // Keep even the averaged glow inside the centered, complete-cell region.
-  vec2 firstEdge = smoothstep(-edgeAA, edgeAA, cellPosition);
+  vec2 firstEdge = smoothstep(-edgeAA, edgeAA, cellPosition - vec2(0.0, firstWindowRow));
   vec2 lastEdge = 1.0 - smoothstep(count - edgeAA, count + edgeAA, cellPosition);
   return coverage * firstEdge.x * firstEdge.y * lastEdge.x * lastEdge.y;
+}
+
+// x = shop facade; y = exposed glass; z = shutter. No additional geometry or program.
+vec3 buildingShop() {
+  float fromBase = vBuildingPosition.y + uBuildingDimensions.y * 0.5;
+  if (abs(vBuildingNormal.y) > 0.5 || uShopBandTop <= 0.0 || fromBase >= uShopBandTop) {
+    return vec3(0.0);
+  }
+  bool side = abs(vBuildingNormal.x) > 0.5;
+  float horizontal = side ? -vBuildingPosition.z * sign(vBuildingNormal.x)
+                          : vBuildingPosition.x * sign(vBuildingNormal.z);
+  float width = side ? uBuildingDimensions.z : uBuildingDimensions.x;
+  float panel = fract((horizontal + width * 0.5) / (uWindowPitch.x * 2.0));
+  float panelEdges = step(0.055, panel) * (1.0 - step(0.945, panel));
+  float openingY = (fromBase - 0.18) / max(uShopBandTop * 0.82 - 0.18, 0.001);
+  float front = panelEdges * step(0.0, openingY) * (1.0 - step(1.0, openingY));
+  // The shutter rises from the pavement; an exact zero leaves no exposed glass.
+  float open = 1.0 - step(uShopOpenRatio, openingY);
+  return vec3(1.0, front * open, front * (1.0 - open));
 }
 `;
 
@@ -96,6 +122,9 @@ export function createWindowMaterial(building: BuildingSnapshot): MeshStandardMa
     shader.uniforms.uBuildingId = { value: building.id };
     shader.uniforms.uWindowLitRatio = { value: building.windowLitRatio };
     shader.uniforms.uWindowEmission = { value: emission };
+    shader.uniforms.uShopBandTop = { value: layout.shopBandTop };
+    shader.uniforms.uShopOpenRatio = { value: building.shopOpenRatio };
+    shader.uniforms.uShopBusyness = { value: building.shopBusyness };
     shader.vertexShader = `varying vec3 vBuildingPosition;\nvarying vec3 vBuildingNormal;\n${shader.vertexShader}`;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
@@ -106,16 +135,22 @@ export function createWindowMaterial(building: BuildingSnapshot): MeshStandardMa
       '#include <color_fragment>',
       '#include <color_fragment>\nvec2 windowCoverage = buildingWindows();\n'
       + 'diffuseColor.rgb *= mix(1.0, 0.32, windowCoverage.x);\n'
+      + 'vec3 shopCoverage = buildingShop();\n'
+      + 'float shutterRidges = 0.8 + 0.2 * step(0.5, fract(vBuildingPosition.y * 6.0));\n'
+      + 'vec3 shopColor = mix(vec3(0.04, 0.05, 0.07), vec3(0.10, 0.12, 0.15) * shutterRidges, shopCoverage.z);\n'
+      + 'shopColor = mix(shopColor, vec3(0.015, 0.025, 0.03), shopCoverage.y);\n'
+      + 'diffuseColor.rgb = mix(diffuseColor.rgb, shopColor, shopCoverage.x);\n'
       // Seen from above the language colour was painting flat olive and navy lids over
       // the skyline. A roof at night is tar and gravel, so it keeps only a trace.
       + 'diffuseColor.rgb *= mix(1.0, 0.12, roofMask());',
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <emissivemap_fragment>',
-      '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uWindowEmission * windowCoverage.y;',
+      '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uWindowEmission * windowCoverage.y;\n'
+      + 'totalEmissiveRadiance += uWindowEmission * shopCoverage.y * mix(0.3, 1.0, uShopBusyness);',
     );
   };
   // Uniforms differ per building, while all 100 materials share one compiled program.
-  material.customProgramCacheKey = () => 'starscraper-physical-windows-v1';
+  material.customProgramCacheKey = () => 'starscraper-physical-windows-v2';
   return material;
 }

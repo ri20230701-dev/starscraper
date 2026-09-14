@@ -62,3 +62,41 @@ describe('physical window layout', () => {
     expect(layout.front.vertical.count).toBe(0);
   });
 });
+
+describe('shops replace one complete window row', () => {
+  it.each([
+    { height: 7.2, count: 2, firstAperture: [1.05, 2.75], shopTop: 3.6 },
+    { height: 12, count: 3, firstAperture: [1.75, 3.45], shopTop: 4.3 },
+  ])('leaves no severed window at height $height', ({ height, count, firstAperture, shopTop }) => {
+    const layout = calculateWindowLayout({ width: 9, depth: 8, height });
+    const vertical = layout.front.vertical;
+    expect(vertical.count).toBe(count);
+    expect(layout.side.vertical).toBe(vertical);
+    expect(apertureBounds(vertical, 0)[0]).toBeCloseTo(firstAperture[0]!);
+    expect(apertureBounds(vertical, 0)[1]).toBeCloseTo(firstAperture[1]!);
+    expect(layout.shopBandTop).toBeCloseTo(shopTop);
+    expect(layout.shopBandTop).toBeCloseTo(vertical.margin + vertical.pitch);
+    // The full old opening lies in the replacement cell; every remaining opening
+    // lies above it. A fixed 2.448/3.4-high strip fails the first of these assertions.
+    expect(apertureBounds(vertical, 0)[1]).toBeLessThan(layout.shopBandTop);
+    for (let row = 1; row < vertical.count; row += 1) {
+      expect(apertureBounds(vertical, row)[0]).toBeGreaterThan(layout.shopBandTop);
+    }
+    expect(vertical.count - 1).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each([3, 3.4, 6.79])('preserves windows when height %s cannot hold two rows', height => {
+    const layout = calculateWindowLayout({ width: 9, depth: 8, height });
+    expect(layout.front.vertical.count).toBeLessThan(2);
+    expect(layout.shopBandTop).toBe(0);
+  });
+
+  it('does not move the store up to the geometry center in a tall building', () => {
+    const height = 76;
+    const layout = calculateWindowLayout({ width: 9, depth: 8, height });
+    const localShopTop = layout.shopBandTop - height * 0.5;
+    expect(localShopTop).toBeCloseTo(-34);
+    expect(localShopTop + height * 0.5).toBeCloseTo(4);
+    expect(localShopTop).toBeLessThan(0);
+  });
+});

@@ -21,7 +21,8 @@ describe('the sample city reaches the renderer intact', () => {
     for (const building of city.buildings) {
       expect(building.windowLitRatio).toBeGreaterThanOrEqual(0);
       expect(building.windowLitRatio).toBeLessThanOrEqual(1);
-      for (const face of Object.values(calculateWindowLayout(building))) {
+      const layout = calculateWindowLayout(building);
+      for (const face of [layout.front, layout.side]) {
         expect(face.horizontal.aperture).toBe(1.15);
         expect(face.vertical.aperture).toBe(1.7);
       }

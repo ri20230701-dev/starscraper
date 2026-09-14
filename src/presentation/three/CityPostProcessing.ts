@@ -23,7 +23,8 @@ export class CityPostProcessing {
     const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
     this.renderPass = new RenderPass(scene, camera);
-    // Only HDR windows exceed 1.0; a moderate halo keeps the window grid legible.
+    // HDR windows, shop fronts and lamp bodies bloom; pools stay below the threshold.
+    // A moderate halo keeps the window grid legible.
     // Strength and radius are held down so the halo separates buildings instead of
     // fusing the skyline into one bright mass; the threshold keeps the walls out of it.
     this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.48, 0.42, BLOOM_THRESHOLD);

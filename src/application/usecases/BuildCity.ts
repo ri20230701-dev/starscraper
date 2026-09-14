@@ -1,6 +1,6 @@
 import { layoutCity } from '../../domain/services/cityLayout';
 import type { Repository } from '../../domain/model/Repository';
-import type { BuildingSnapshot, CitySnapshot } from '../dto/CitySnapshot';
+import type { BuildingSnapshot, CitySnapshot, PedestrianSnapshot, StreetLightSnapshot } from '../dto/CitySnapshot';
 
 /**
  * Turn repository data into the flat snapshot the renderer consumes.
@@ -20,6 +20,8 @@ export class BuildCity {
       height: building.height,
       color: building.color,
       windowLitRatio: building.windowLitRatio,
+      shopOpenRatio: building.shopOpenRatio,
+      shopBusyness: building.shopBusyness,
       name: building.name,
       htmlUrl: building.htmlUrl,
       description: building.description,
@@ -28,6 +30,18 @@ export class BuildCity {
       pushedAt: building.pushedAt,
       isFork: building.isFork,
     }));
-    return Object.freeze({ buildings: Object.freeze(buildings) });
+    const pedestrians: PedestrianSnapshot[] = layout.pedestrians.map(pedestrian => Object.freeze({
+      route: Object.freeze({ ...pedestrian.route }),
+      phase: pedestrian.phase,
+      speed: pedestrian.speed,
+      direction: pedestrian.direction,
+    }));
+    const streetLights: StreetLightSnapshot[] = layout.streetLights.map(light => Object.freeze({ x: light.x, z: light.z }));
+    return Object.freeze({
+      buildings: Object.freeze(buildings),
+      pedestrians: Object.freeze(pedestrians),
+      streetLights: Object.freeze(streetLights),
+      omittedPedestrians: layout.omittedPedestrians,
+    });
   }
 }

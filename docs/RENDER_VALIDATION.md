@@ -274,3 +274,77 @@ Recorded plainly rather than implied:
 
 These need a person with a browser. They are the first things to check after the first
 deployment.
+
+## Issue #14 — street life (2026-09-13)
+
+Implemented shop fronts in the lowest complete window row, deterministic pedestrians
+on block perimeter roads, and cool-white street lights with additive ground pools.
+The camera fit, fog and far plane include whole pedestrian routes and lamp/pool bounds.
+
+### Automated verification
+
+- `npm run build` passed: TypeScript, 336 tests in 15 files, and the Vite production build.
+- `tests/architecture.test.ts` is unchanged; no dependency allowlist was relaxed.
+- All brief counterexamples are covered: the isolated `(2,2)` plot, negative blocks,
+  two-year-old repositories, 7.2/12-unit buildings, empty cities, fork extremes,
+  observable population truncation, deterministic snapshots, and one-building framing.
+- The existing 12-repository sample is unchanged and exercises closed/open shops,
+  zero/saturated busyness, and pedestrians.
+- Mesh tests verify one pedestrian batch plus three lamp batches, single materials,
+  no real lights, disabled instance frustum culling, and explicit resource disposal.
+  Lifecycle tests verify time advances in Orbit and Walk, resets on mount, and does
+  not advance during `capturePng()`.
+- Static shader review/tests preserve one fixed window program with uniforms and cache
+  key `starscraper-physical-windows-v2`. The lowest row is excluded before both detailed
+  and averaged window coverage. Pools retain the basic material's output transforms and
+  reuse three's fog distance calculation, fading their additive alpha to zero instead
+  of adding fog color. A hook test against `ShaderLib.basic` covers that integration;
+  this is not a GPU shader compilation or rendered-image test.
+
+### Draw-call measurement
+
+Both readings come from the `[starscraper scene]` DEV log at
+`http://localhost:5199/?u=sindresorhus`, viewport 3440×1352, DPR 1.
+
+| | before | after |
+|---|---|---|
+| `buildings` | 100 | 100 |
+| `calls` | 115 | **119** (+4) |
+| `triangles` | 1216 | 43516 |
+| `geometries` | 102 | 106 |
+
+The four added calls are the one pedestrian batch and the three lamp batches, which is
+the budget the brief set. `pedestrians=240` (city cap), `streetLights=145`.
+`omittedPedestrians` drifts between runs because the reference instant is the wall clock:
+determinism is promised per `referenceTime`, not across days.
+
+### Measurements still pending
+
+**Composited appearance is only verified in Orbit.** Orbit screenshots at the conditions
+above show the additive pools, lamp bloom, lit shop fronts and shutter bands rendering as
+intended, and confirm no severed window row above the shop band. Because DPR was 1, no
+conclusion is drawn about texture, shading or antialiasing quality.
+
+**Walk-mode appearance is not verified at all.** Pointer lock is not granted to automated
+clicks, so eye-height 1.7 was never entered.
+
+**Walk frame times/FPS were not measured.** They remain a human manual acceptance
+check at eye height 1.7 after entering pointer lock in a foreground browser tab.
+Orbit maximum zoom is not a substitute. Automated background rAF samples and mocked
+pointer-lock tests must not be reported as Walk performance measurements.
+
+### Deliberately retained behavior
+
+- Raycasting selects buildings only, even behind a visually overlapping pedestrian or lamp.
+- `CityCollision` is unchanged: pedestrians and lamps have no collision and can be walked through.
+- PNG capture saves the current displayed state; it does not promise identical pedestrian
+  positions at arbitrary capture times from identical repository inputs.
+- Summing a block's activity accumulates in input order, so the rounded pedestrian count
+  sits on a floating-point knife edge for contrived inputs (`0.008 + 0.071 + 0.046` rounds
+  to one pedestrian forwards and none reversed). `layoutCity` always sorts with `byRecency`
+  first, which is a total order, so the stated contract — same repositories and same
+  `referenceTime` produce the same city — holds. Only a direct `layoutStreetLife` call with
+  a different order can observe the difference.
+- A pedestrian walking in reverse that lands exactly on a corner faces the segment it is
+  leaving for that one frame. Phases come from a hash, so landing exactly on a corner is
+  not reachable in practice.

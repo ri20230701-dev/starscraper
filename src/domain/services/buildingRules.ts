@@ -33,6 +33,13 @@ export const WINDOW_LIT = Object.freeze({
   abandonedRatio: 0.02,
 });
 
+export const FORK_SATURATION = 4096;
+
+export interface ShopGrade {
+  readonly openRatio: number;
+  readonly busyness: number;
+}
+
 /**
  * Stars follow a power law: most repositories have none and a single one may have tens of
  * thousands. Mapping them linearly produces one tower beside a field of paving stones, so
@@ -111,6 +118,23 @@ export function windowLitRatioOf(repository: Repository, referenceTime: number):
   }
   return interpolate(logDays, Math.log2(WINDOW_LIT.staleDays), Math.log2(WINDOW_LIT.abandonedDays),
     WINDOW_LIT.staleRatio, WINDOW_LIT.abandonedRatio);
+}
+
+/** Street activity reaches zero after a year; the window rule deliberately never does. */
+export function streetActivityOf(repository: Repository, referenceTime: number): number {
+  if (repository.pushedAt === null) return 0;
+  const days = Math.max(0, (referenceTime - repository.pushedAt) / DAY_MS);
+  if (days <= WINDOW_LIT.freshDays) return 1;
+  if (days >= WINDOW_LIT.staleDays) return 0;
+  return interpolate(Math.log2(days), Math.log2(WINDOW_LIT.freshDays), Math.log2(WINDOW_LIT.staleDays), 1, 0);
+}
+
+/** A recent push opens the shutters; forks measure the audience behind the shop window. */
+export function shopGradeOf(repository: Repository, referenceTime: number): ShopGrade {
+  return Object.freeze({
+    openRatio: streetActivityOf(repository, referenceTime),
+    busyness: Math.min(1, Math.log2(Math.max(0, repository.forks) + 1) / Math.log2(FORK_SATURATION + 1)),
+  });
 }
 
 /**

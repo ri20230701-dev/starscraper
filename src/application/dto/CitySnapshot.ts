@@ -14,6 +14,8 @@ export interface BuildingSnapshot {
   readonly height: number;
   readonly color: string;
   readonly windowLitRatio: number;
+  readonly shopOpenRatio: number;
+  readonly shopBusyness: number;
   readonly name: string;
   readonly htmlUrl: string;
   readonly description: string | null;
@@ -24,6 +26,29 @@ export interface BuildingSnapshot {
   readonly isFork: boolean;
 }
 
+export interface PedestrianSnapshot {
+  readonly route: {
+    readonly minX: number;
+    readonly maxX: number;
+    readonly minZ: number;
+    readonly maxZ: number;
+  };
+  /** Fraction of one circuit, in [0, 1). */
+  readonly phase: number;
+  /** World units per second. */
+  readonly speed: number;
+  readonly direction: 1 | -1;
+}
+
+export interface StreetLightSnapshot {
+  readonly x: number;
+  readonly z: number;
+}
+
 export interface CitySnapshot {
   readonly buildings: readonly BuildingSnapshot[];
+  readonly pedestrians: readonly PedestrianSnapshot[];
+  readonly streetLights: readonly StreetLightSnapshot[];
+  /** Requested pedestrians omitted by the city-wide instance limit. */
+  readonly omittedPedestrians: number;
 }

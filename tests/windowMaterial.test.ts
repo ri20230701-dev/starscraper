@@ -31,11 +31,11 @@ const metadata = {
 
 const narrowBuilding: BuildingSnapshot = {
   id: 17, x: 0, z: 0, width: 9, depth: 17, height: 76,
-  color: '#123456', windowLitRatio: 0.37, name: 'narrow', ...metadata,
+  color: '#123456', windowLitRatio: 0.37, shopOpenRatio: 0.35, shopBusyness: 0.2, name: 'narrow', ...metadata,
 };
 const wideBuilding: BuildingSnapshot = {
   id: 35, x: 10, z: 20, width: 18, depth: 8, height: 12,
-  color: '#654321', windowLitRatio: 0.81, name: 'wide', ...metadata,
+  color: '#654321', windowLitRatio: 0.81, shopOpenRatio: 0.95, shopBusyness: 0.8, name: 'wide', ...metadata,
 };
 
 function expectBuildingUniforms(
@@ -55,6 +55,9 @@ function expectBuildingUniforms(
     uBuildingId: { value: building.id },
     uWindowLitRatio: { value: building.windowLitRatio },
     uWindowEmission: { value: { isColor: true } },
+    uShopBandTop: { value: expect.closeTo(margins[1] + 3.4) },
+    uShopOpenRatio: { value: building.shopOpenRatio },
+    uShopBusyness: { value: building.shopBusyness },
   });
 }
 
@@ -98,6 +101,49 @@ describe('window material shader connection', () => {
     } finally {
       firstMaterial.dispose();
       secondMaterial.dispose();
+    }
+  });
+
+  it('shares the same v2 shader and defines for every store grade, size, and window-row count', () => {
+    const materials = [narrowBuilding, wideBuilding, {
+      ...narrowBuilding, height: 3.4, shopOpenRatio: 0, shopBusyness: 0,
+    }, {
+      ...narrowBuilding, height: 7.2, shopOpenRatio: 1, shopBusyness: 1,
+    }].map(createWindowMaterial);
+    try {
+      const shaders = materials.map(compile);
+      for (let index = 0; index < materials.length; index += 1) {
+        expect(materials[index]!.customProgramCacheKey()).toBe('starscraper-physical-windows-v2');
+        expect(materials[index]!.defines).toEqual({ STANDARD: '' });
+        expect(shaders[index]!.vertexShader).toBe(shaders[0]!.vertexShader);
+        expect(shaders[index]!.fragmentShader).toBe(shaders[0]!.fragmentShader);
+      }
+      expect(shaders[2]!.uniforms.uShopBandTop?.value).toBe(0);
+      expect(shaders[3]!.uniforms.uShopBandTop?.value).toBeCloseTo(3.6);
+      expect(shaders[2]!.uniforms.uShopOpenRatio?.value).toBe(0);
+      expect(shaders[3]!.uniforms.uShopOpenRatio?.value).toBe(1);
+    } finally {
+      materials.forEach(material => material.dispose());
+    }
+  });
+
+  it('replaces the lowest cell before both detailed and averaged window coverage', () => {
+    const material = createWindowMaterial({ ...narrowBuilding, height: 7.2 });
+    try {
+      const shader = compile(material);
+      const fragment = shader.fragmentShader;
+      expect(shader.uniforms.uShopBandTop?.value).toBeCloseTo(3.6);
+      const rowExclusion = fragment.indexOf('if (uShopBandTop > 0.0 && cell.y <= 0.0) return vec2(0.0);');
+      expect(rowExclusion).toBeGreaterThan(0);
+      expect(rowExclusion).toBeLessThan(fragment.indexOf('float detailedGlass'));
+      expect(rowExclusion).toBeLessThan(fragment.indexOf('float averageWeight'));
+      expect(fragment).toContain('cellPosition - vec2(0.0, firstWindowRow)');
+      expect(fragment).toContain('float fromBase = vBuildingPosition.y + uBuildingDimensions.y * 0.5;');
+      expect(fragment).toContain('uShopBandTop <= 0.0 || fromBase >= uShopBandTop');
+      expect(fragment).toContain('float open = 1.0 - step(uShopOpenRatio, openingY);');
+      expect(fragment).toContain('uWindowEmission * shopCoverage.y * mix(0.3, 1.0, uShopBusyness)');
+    } finally {
+      material.dispose();
     }
   });
 });
