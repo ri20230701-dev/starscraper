@@ -1,4 +1,7 @@
 import type { CitySnapshot } from '../../application/dto/CitySnapshot';
+import {
+  PEDESTRIAN_HEIGHT, PEDESTRIAN_RADIUS, STREET_LIGHT_HEIGHT, STREET_LIGHT_POOL_RADIUS,
+} from './streetDimensions';
 
 export interface CityFraming {
   /** Where the camera sits, in world units. */
@@ -30,7 +33,7 @@ const EMPTY: CityFraming = {
  * projected past the top of the screen even though the arithmetic said it fit.
  */
 export function frameCity(city: CitySnapshot, verticalFovDegrees: number, aspect: number): CityFraming {
-  if (city.buildings.length === 0) return EMPTY;
+  if (city.buildings.length === 0 && city.pedestrians.length === 0 && city.streetLights.length === 0) return EMPTY;
 
   // Measure the city where it actually stands. The grid starts inside a block rather
   // than at the origin, so assuming the skyline is centred would frame empty ground.
@@ -46,12 +49,28 @@ export function frameCity(city: CitySnapshot, verticalFovDegrees: number, aspect
     maxZ = Math.max(maxZ, building.z + building.depth / 2);
     if (building.height > tallest) tallest = building.height;
   }
+  // A pedestrian can visit every corner of its route. Fitting just today's instance
+  // positions would let the same walkers leave the opening shot a few seconds later.
+  for (const pedestrian of city.pedestrians) {
+    minX = Math.min(minX, pedestrian.route.minX - PEDESTRIAN_RADIUS);
+    maxX = Math.max(maxX, pedestrian.route.maxX + PEDESTRIAN_RADIUS);
+    minZ = Math.min(minZ, pedestrian.route.minZ - PEDESTRIAN_RADIUS);
+    maxZ = Math.max(maxZ, pedestrian.route.maxZ + PEDESTRIAN_RADIUS);
+    tallest = Math.max(tallest, PEDESTRIAN_HEIGHT);
+  }
+  for (const light of city.streetLights) {
+    minX = Math.min(minX, light.x - STREET_LIGHT_POOL_RADIUS);
+    maxX = Math.max(maxX, light.x + STREET_LIGHT_POOL_RADIUS);
+    minZ = Math.min(minZ, light.z - STREET_LIGHT_POOL_RADIUS);
+    maxZ = Math.max(maxZ, light.z + STREET_LIGHT_POOL_RADIUS);
+    tallest = Math.max(tallest, STREET_LIGHT_HEIGHT);
+  }
   const centreX = (minX + maxX) / 2;
   const centreZ = (minZ + maxZ) / 2;
   // Aim at the middle of the skyline's height so the fit is symmetric about the axis.
   const targetY = tallest / 2;
 
-  // Radius of the sphere that contains every building corner, measured from the target.
+  // Radius of the sphere containing buildings and all street life, measured from the target.
   const halfX = Math.max((maxX - minX) / 2, 12);
   const halfZ = Math.max((maxZ - minZ) / 2, 12);
   const radius = Math.max(Math.hypot(halfX, halfZ, targetY), 26);

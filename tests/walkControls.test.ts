@@ -7,14 +7,15 @@ import { WalkControls } from '../src/presentation/input/WalkControls';
 function building(overrides: Partial<BuildingSnapshot> = {}): BuildingSnapshot {
   return {
     id: 0, x: 0, z: 0, width: 18, depth: 18, height: 40,
-    color: '#3178c6', windowLitRatio: 0.5, name: 'repo',
+    color: '#3178c6', windowLitRatio: 0.5, shopOpenRatio: 0.5, shopBusyness: 0, name: 'repo',
     htmlUrl: 'https://github.com/example/repo', description: null,
     language: null, stars: 0, pushedAt: null, isFork: false,
     ...overrides,
   };
 }
 
-const city: CitySnapshot = { buildings: [building()] };
+const emptyCity: CitySnapshot = { buildings: [], pedestrians: [], streetLights: [], omittedPedestrians: 0 };
+const city: CitySnapshot = { ...emptyCity, buildings: [building()] };
 
 /**
  * Pointer lock cannot be granted in an automated browser, so the lock state is driven
@@ -72,7 +73,7 @@ describe('walking the streets', () => {
     // W used to move along +Z while the camera looked down -Z, so the walker reversed.
     // Comparing against getWorldDirection is what makes this test independent of the
     // convention the implementation happens to use.
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     const before = walk.camera.position.clone();
     const facing = heading(walk.camera);
@@ -85,7 +86,7 @@ describe('walking the streets', () => {
   });
 
   it('backs away from the view when S is held', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     const before = walk.camera.position.clone();
     const facing = heading(walk.camera);
@@ -97,7 +98,7 @@ describe('walking the streets', () => {
   });
 
   it('strafes to the right of the view when D is held', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     const before = walk.camera.position.clone();
     const facing = heading(walk.camera);
@@ -164,7 +165,7 @@ describe('walking the streets', () => {
   });
 
   it('turns with the mouse and still walks where it looks', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.look(400);
     expect(Math.abs(walk.camera.rotation.y)).toBeGreaterThan(0.5);
@@ -178,7 +179,7 @@ describe('walking the streets', () => {
   });
 
   it('keeps walking while either bound key is still held', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.press('KeyW');
     walk.press('ArrowUp');
@@ -201,7 +202,7 @@ describe('walking the streets', () => {
 
   it('drops held keys when the window loses focus', () => {
     // Otherwise the walker keeps strolling into a wall while the visitor is elsewhere.
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.press('KeyW');
     window.dispatchEvent(new Event('blur'));
@@ -212,7 +213,7 @@ describe('walking the streets', () => {
   });
 
   it('drops held keys when the lock is released', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.press('KeyW');
     walk.setLocked(false);
@@ -225,14 +226,14 @@ describe('walking the streets', () => {
   });
 
   it('does not let a diagonal outrun a straight line', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.press('KeyW');
     walk.controls.update(0.2);
     const straight = walk.camera.position.length();
     walk.controls.dispose();
 
-    const diagonal = harness({ buildings: [] }, { x: 0, z: 0 });
+    const diagonal = harness(emptyCity, { x: 0, z: 0 });
     diagonal.setLocked(true);
     diagonal.press('KeyW');
     diagonal.press('KeyD');
@@ -242,7 +243,7 @@ describe('walking the streets', () => {
   });
 
   it('stops when the key is released', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.press('KeyW');
     walk.controls.update(0.1);
@@ -254,7 +255,7 @@ describe('walking the streets', () => {
   });
 
   it('removes its listeners on dispose', () => {
-    const walk = harness({ buildings: [] }, { x: 0, z: 0 });
+    const walk = harness(emptyCity, { x: 0, z: 0 });
     walk.setLocked(true);
     walk.controls.dispose();
     const before = walk.camera.position.clone();

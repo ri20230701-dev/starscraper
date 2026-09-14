@@ -1,6 +1,8 @@
 import type { Repository } from '../model/Repository';
-import { byRecency, depthOf, footprintOf, heightOf, wallColorOf, windowLitRatioOf } from './buildingRules';
+import { byRecency, depthOf, footprintOf, heightOf, shopGradeOf, wallColorOf, windowLitRatioOf } from './buildingRules';
 import { cellCentre, plotCells } from './cityGrid';
+import { layoutStreetLife } from './streetLife';
+import type { StreetLife } from './streetLife';
 
 /** One placed building, in world units. Rendering owns everything beyond these numbers. */
 export interface PlacedBuilding {
@@ -18,9 +20,11 @@ export interface PlacedBuilding {
   readonly height: number;
   readonly color: string;
   readonly windowLitRatio: number;
+  readonly shopOpenRatio: number;
+  readonly shopBusyness: number;
 }
 
-export interface CityLayout {
+export interface CityLayout extends StreetLife {
   readonly buildings: readonly PlacedBuilding[];
 }
 
@@ -29,7 +33,7 @@ export interface CityLayout {
  *
  * The result depends on nothing else: no clock, no randomness, no iteration order of a
  * map. Given the same repositories and the same `referenceTime` this returns the same
- * city every time, which is what makes a shared screenshot reproducible.
+ * layout and initial pedestrian state every time. Presentation owns elapsed animation time.
  */
 export function layoutCity(
   repositories: readonly Repository[],
@@ -42,6 +46,7 @@ export function layoutCity(
     // plotCells returns exactly one cell per repository; this guards the index type.
     if (!cell) throw new RangeError('The grid produced fewer plots than repositories.');
     const centre = cellCentre(cell);
+    const shop = shopGradeOf(repository, referenceTime);
     return Object.freeze({
       name: repository.name,
       htmlUrl: repository.htmlUrl,
@@ -57,7 +62,13 @@ export function layoutCity(
       height: heightOf(repository),
       color: wallColorOf(repository),
       windowLitRatio: windowLitRatioOf(repository, referenceTime),
+      shopOpenRatio: shop.openRatio,
+      shopBusyness: shop.busyness,
     });
   });
-  return Object.freeze({ buildings: Object.freeze(buildings) });
+  const streetLife = layoutStreetLife(cells.map((cell, index) => ({
+    ...cell,
+    streetActivity: buildings[index]!.shopOpenRatio,
+  })));
+  return Object.freeze({ buildings: Object.freeze(buildings), ...streetLife });
 }

@@ -9,14 +9,18 @@ const RADIUS = 0.9;
 function building(overrides: Partial<BuildingSnapshot> = {}): BuildingSnapshot {
   return {
     id: 0, x: 0, z: 0, width: 18, depth: 18, height: 40,
-    color: '#3178c6', windowLitRatio: 0.5, name: 'repo',
+    color: '#3178c6', windowLitRatio: 0.5, shopOpenRatio: 0.5, shopBusyness: 0, name: 'repo',
     htmlUrl: 'https://github.com/example/repo', description: null,
     language: null, stars: 0, pushedAt: null, isFork: false,
     ...overrides,
   };
 }
 
-const oneBuilding: CitySnapshot = { buildings: [building()] };
+function city(buildings: readonly BuildingSnapshot[]): CitySnapshot {
+  return { buildings, pedestrians: [], streetLights: [], omittedPedestrians: 0 };
+}
+
+const oneBuilding = city([building()]);
 const sampleCity = new BuildCity().execute(SAMPLE_REPOSITORY_PAGE.repositories, SAMPLE_REFERENCE_TIME);
 
 function inside(city: CitySnapshot, point: { x: number; z: number }): boolean {
@@ -101,7 +105,7 @@ describe('a walker cannot enter a building', () => {
     // The narrowest footprint the rules can produce is seven units; a step capped at
     // half a bucket was larger, so both ends of a move could be legal with the middle
     // of it inside the building.
-    const narrow: CitySnapshot = { buildings: [building({ x: 120, z: 72, width: 7, depth: 7 })] };
+    const narrow = city([building({ x: 120, z: 72, width: 7, depth: 7 })]);
     const collision = new CityCollision(narrow, RADIUS);
     const result = collision.move({ x: 115, z: 72 }, 10, 0);
     expect(result.x).toBeLessThan(120);
@@ -109,7 +113,7 @@ describe('a walker cannot enter a building', () => {
   });
 
   it.each([2, 5, 9, 40, 400])('stays on one side of a narrow building for a step of %i', distance => {
-    const narrow: CitySnapshot = { buildings: [building({ x: 0, z: 0, width: 7, depth: 7 })] };
+    const narrow = city([building({ x: 0, z: 0, width: 7, depth: 7 })]);
     const collision = new CityCollision(narrow, RADIUS);
     for (const sign of [-1, 1]) {
       const from = { x: sign * -20, z: 0 };
@@ -137,7 +141,7 @@ describe('the walker starts somewhere sensible', () => {
   });
 
   it('copes with a city that has no buildings at all', () => {
-    const collision = new CityCollision({ buildings: [] }, RADIUS);
+    const collision = new CityCollision(city([]), RADIUS);
     expect(collision.blocked({ x: 0, z: 0 })).toBe(false);
     expect(collision.move({ x: 0, z: 0 }, 5, 5)).toEqual({ x: 5, z: 5 });
   });

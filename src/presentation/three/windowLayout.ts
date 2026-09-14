@@ -24,6 +24,8 @@ export interface BuildingWindowLayout {
   readonly front: WindowFaceLayout;
   /** Left/right (normal ±X): the wall's horizontal dimension is depth. */
   readonly side: WindowFaceLayout;
+  /** Top of the replaced ground-floor cell, measured from the base; 0 preserves a lone window row. */
+  readonly shopBandTop: number;
 }
 
 function axisLayout(dimension: number, pitch: number, aperture: number): WindowAxisLayout {
@@ -39,6 +41,7 @@ export function calculateWindowLayout(dimensions: {
 }): BuildingWindowLayout {
   const vertical = axisLayout(dimensions.height, WINDOW_GRID.verticalPitch, WINDOW_GRID.windowHeight);
   return {
+    shopBandTop: vertical.count >= 2 ? vertical.margin + vertical.pitch : 0,
     front: {
       horizontal: axisLayout(dimensions.width, WINDOW_GRID.horizontalPitch, WINDOW_GRID.windowWidth),
       vertical,

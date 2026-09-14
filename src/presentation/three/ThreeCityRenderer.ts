@@ -9,6 +9,8 @@ import { WalkControls } from '../input/WalkControls';
 import { BuildingMeshes } from './BuildingMeshes';
 import { CityPostProcessing } from './CityPostProcessing';
 import { frameCity } from './cityFraming';
+import { PedestrianMeshes } from './PedestrianMeshes';
+import { StreetLightMeshes } from './StreetLightMeshes';
 
 /** Normalised device coordinates for the middle of the screen. */
 const CENTRE = new Vector2(0, 0);
@@ -19,6 +21,9 @@ export class ThreeCityRenderer implements CityRenderer {
   private scene: Scene | null = null;
   private camera: PerspectiveCamera | null = null;
   private buildings: BuildingMeshes | null = null;
+  private pedestrians: PedestrianMeshes | null = null;
+  private streetLights: StreetLightMeshes | null = null;
+  private elapsedSeconds = 0;
   private controls: CityOrbitControls | null = null;
   private walk: WalkControls | null = null;
   private mode: CityMode = 'orbit';
@@ -28,13 +33,14 @@ export class ThreeCityRenderer implements CityRenderer {
   private ground: Mesh<PlaneGeometry, MeshStandardMaterial> | null = null;
   private observer: ResizeObserver | null = null;
   private container: HTMLElement | null = null;
-  private city: CitySnapshot = { buildings: [] };
+  private city: CitySnapshot = { buildings: [], pedestrians: [], streetLights: [], omittedPedestrians: 0 };
   private onFailure: (() => void) | null = null;
 
   mount(container: HTMLElement, city: CitySnapshot, onFailure: () => void): void {
     this.dispose();
     this.city = city;
     this.mode = 'orbit';
+    this.elapsedSeconds = 0;
     this.container = container;
     this.onFailure = onFailure;
     const canvas = container.ownerDocument.createElement('canvas');
@@ -65,6 +71,9 @@ export class ThreeCityRenderer implements CityRenderer {
       this.scene.add(this.ground);
       this.buildings = new BuildingMeshes(city);
       this.scene.add(this.buildings.group);
+      this.pedestrians = new PedestrianMeshes(city.pedestrians);
+      this.streetLights = new StreetLightMeshes(city.streetLights);
+      this.scene.add(this.pedestrians.group, this.streetLights.group);
       const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
       const framing = frameCity(city, 43, aspect);
       this.framing = framing;
@@ -84,6 +93,9 @@ export class ThreeCityRenderer implements CityRenderer {
       this.renderFinal();
       if (import.meta.env.DEV) console.info('[starscraper scene]', JSON.stringify({
         buildings: this.buildings.group.children.length,
+        pedestrians: city.pedestrians.length,
+        omittedPedestrians: city.omittedPedestrians,
+        streetLights: city.streetLights.length,
         calls: this.renderer.info.render.calls,
         triangles: this.renderer.info.render.triangles,
         geometries: this.renderer.info.memory.geometries,
@@ -96,6 +108,8 @@ export class ThreeCityRenderer implements CityRenderer {
   }
 
   update(deltaSeconds: number): void {
+    this.elapsedSeconds += deltaSeconds;
+    this.pedestrians?.update(this.elapsedSeconds);
     if (this.mode === 'walk') this.walk?.update(deltaSeconds);
     else this.controls?.update(deltaSeconds);
   }
@@ -195,6 +209,10 @@ export class ThreeCityRenderer implements CityRenderer {
     this.postProcessing = null;
     this.buildings?.dispose();
     this.buildings = null;
+    this.pedestrians?.dispose();
+    this.pedestrians = null;
+    this.streetLights?.dispose();
+    this.streetLights = null;
     this.ground?.geometry.dispose();
     this.ground?.material.dispose();
     this.ground = null;
